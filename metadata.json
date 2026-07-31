@@ -1,0 +1,6 @@
+{
+  "name": "Starforge",
+  "description": "Developer & Client Social Network with Instagram-style Reels, GitHub integration, portfolio showcase, real-time messaging, and AI-powered admin verification assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

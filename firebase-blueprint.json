@@ -1,0 +1,184 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile document storing account and developer/client metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string", "minLength": 2, "maxLength": 50 },
+        "fullName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 120 },
+        "phoneNumber": { "type": "string", "maxLength": 30 },
+        "role": { "type": "string", "enum": ["developer", "client", "admin"] },
+        "avatar": { "type": "string", "maxLength": 500 },
+        "coverImage": { "type": "string", "maxLength": 500 },
+        "bio": { "type": "string", "maxLength": 500 },
+        "skills": { "type": "array" },
+        "location": { "type": "string", "maxLength": 100 },
+        "country": { "type": "string", "maxLength": 100 },
+        "website": { "type": "string", "maxLength": 200 },
+        "github": { "type": "string", "maxLength": 100 },
+        "linkedin": { "type": "string", "maxLength": 100 },
+        "experience": { "type": "string", "maxLength": 200 },
+        "availability": { "type": "string", "maxLength": 50 },
+        "isVerified": { "type": "boolean" },
+        "trustScore": { "type": "number" },
+        "riskLevel": { "type": "string" },
+        "followersCount": { "type": "number" },
+        "followingCount": { "type": "number" },
+        "postsCount": { "type": "number" },
+        "reelsCount": { "type": "number" },
+        "projectsCount": { "type": "number" },
+        "savedByClients": { "type": "number" },
+        "isBanned": { "type": "boolean" },
+        "isSuspended": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["username", "fullName", "email", "role", "isVerified"]
+    },
+    "Post": {
+      "title": "Social Post or Project",
+      "description": "Feed post, code snippet, reel or published project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorUsername": { "type": "string" },
+        "authorFullName": { "type": "string" },
+        "authorAvatar": { "type": "string" },
+        "authorRole": { "type": "string" },
+        "isVerified": { "type": "boolean" },
+        "type": { "type": "string", "enum": ["post", "reel", "project", "github"] },
+        "title": { "type": "string", "maxLength": 200 },
+        "content": { "type": "string", "maxLength": 2000 },
+        "mediaUrls": { "type": "array" },
+        "videoUrl": { "type": "string", "maxLength": 500 },
+        "githubUrl": { "type": "string", "maxLength": 500 },
+        "demoUrl": { "type": "string", "maxLength": 500 },
+        "tags": { "type": "array" },
+        "likesCount": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["authorId", "authorUsername", "type", "content"]
+    },
+    "Reel": {
+      "title": "Short Video Reel",
+      "description": "Developer video reel post",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorUsername": { "type": "string" },
+        "authorFullName": { "type": "string" },
+        "authorAvatar": { "type": "string" },
+        "isVerified": { "type": "boolean" },
+        "title": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "videoUrl": { "type": "string", "maxLength": 500 },
+        "audioTitle": { "type": "string", "maxLength": 100 },
+        "likesCount": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "tags": { "type": "array" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["authorId", "authorUsername", "title", "videoUrl"]
+    },
+    "Message": {
+      "title": "Direct Message",
+      "description": "Chat message between developers and clients",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderId": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "text": { "type": "string", "maxLength": 2000 },
+        "imageUrl": { "type": "string", "maxLength": 500 },
+        "projectAttachment": { "type": "object" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "reaction": { "type": "string" }
+      },
+      "required": ["senderId", "receiverId", "text"]
+    },
+    "NotificationItem": {
+      "title": "In-app Notification",
+      "description": "User notification for likes, hires, comments, messages",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "fromUsername": { "type": "string" },
+        "fromAvatar": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "read": { "type": "boolean" }
+      },
+      "required": ["userId", "text"]
+    },
+    "VerificationRequest": {
+      "title": "Developer Verification Request",
+      "description": "Verification submission reviewed by admin & AI analysis",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "fullName": { "type": "string" },
+        "avatar": { "type": "string" },
+        "submittedAt": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "aiAnalysis": { "type": "object" }
+      },
+      "required": ["userId", "username", "status"]
+    },
+    "UserReport": {
+      "title": "User Report",
+      "description": "Community report against bad actor or spammer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reportedUserId": { "type": "string" },
+        "reportedUsername": { "type": "string" },
+        "reportedByUsername": { "type": "string" },
+        "reason": { "type": "string" },
+        "details": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "resolved", "dismissed"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["reportedUserId", "reportedUsername", "reason"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles collection"
+    },
+    "/posts/{postId}": {
+      "schema": "Post",
+      "description": "Feed posts and project showcases"
+    },
+    "/reels/{reelId}": {
+      "schema": "Reel",
+      "description": "Developer video reels"
+    },
+    "/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Direct messages"
+    },
+    "/notifications/{notifId}": {
+      "schema": "NotificationItem",
+      "description": "User notifications"
+    },
+    "/verification_requests/{verifId}": {
+      "schema": "VerificationRequest",
+      "description": "Developer badge verification applications"
+    },
+    "/reports/{reportId}": {
+      "schema": "UserReport",
+      "description": "User reports for administrative review"
+    }
+  }
+}
