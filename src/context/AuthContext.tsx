@@ -60,60 +60,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // 1. Seed Initial Users (including preconfigured Admin account) into Firestore if empty
-  const seedInitialUsers = async () => {
-    try {
-      const snapshot = await getDocs(collection(db, 'users'));
-      if (snapshot.empty) {
-        // Seed initial users
-        const adminAccount: UserProfile = {
-          id: 'user_admin_siyad',
-          username: 'admin',
-          fullName: 'Starforge Admin',
-          email: 'siyadmp70@gmail.com',
-          phone: '+1 (555) 000-0000',
-          role: 'admin',
-          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-          coverImage: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&auto=format&fit=crop&q=80',
-          bio: 'Official Starforge Platform Administrator. Overseeing verification & security.',
-          skills: ['Platform Moderation', 'AI Verification', 'Security'],
-          isVerified: true,
-          followersCount: 1240,
-          followingCount: 15,
-          postsCount: 0,
-          reelsCount: 0,
-          projectsCount: 0,
-          createdAt: new Date().toISOString(),
-        };
-
-        const allToSeed = [adminAccount, ...INITIAL_USERS.filter((u) => u.username !== 'admin')];
-
-        for (const u of allToSeed) {
-          const userDocRef = doc(db, 'users', u.id);
-          await setDoc(userDocRef, {
-            ...u,
-            postsCount: u.postsCount || 0,
-            reelsCount: u.reelsCount || 0,
-            projectsCount: u.projectsCount || 0,
-            followersCount: u.followersCount || 0,
-            followingCount: u.followingCount || 0,
-            isVerified: u.isVerified || false,
-            isBanned: u.isBanned || false,
-            isSuspended: u.isSuspended || false,
-            createdAt: u.createdAt || new Date().toISOString(),
-          });
-        }
-      }
-    } catch (err) {
-      console.error('Error seeding initial Firestore users:', err);
-    }
-  };
-
-  useEffect(() => {
-    seedInitialUsers();
-  }, []);
-
-  // 2. Real-Time Subscription to `users` collection in Firestore
+  // Real-Time Subscription to `users` collection in Firestore
   useEffect(() => {
     const unsubscribe = onSnapshot(
       collection(db, 'users'),

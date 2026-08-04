@@ -49,7 +49,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   isModalMode = false,
 }) => {
   const { currentUser, users } = useAuth();
-  const { messages, sendMessage, reactToMessage } = useSocial();
+  const { messages, sendMessage, reactToMessage, markMessagesAsRead } = useSocial();
 
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -79,11 +79,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
       setActiveUser(initialTargetUser);
     }
   }, [initialTargetUser]);
-
-  // Scroll to bottom on new messages or user change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, activeUser]);
 
   if (!currentUser) {
     return (
@@ -151,6 +146,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const currentChatUser = activeUser || filteredUsers[0] || allOtherUsers[0];
   const activeChatMessages = currentChatUser ? getUserMessages(currentChatUser.id) : [];
   const activeUserHasMessaged = currentChatUser ? getHasMessagedBefore(currentChatUser.id) : false;
+
+  // Scroll to bottom on new messages or user change and mark as read
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (currentChatUser?.id) {
+      markMessagesAsRead(currentChatUser.id);
+    }
+  }, [messages, activeUser, currentChatUser?.id]);
 
   // Repositories for project attachments
   const currentUserRepos =

@@ -89,6 +89,9 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
 
   const [createType, setCreateType] = useState<'post' | 'reel' | 'project' | 'github'>('post');
 
+  const imageInputRef = React.useRef<HTMLInputElement>(null);
+  const videoInputRef = React.useRef<HTMLInputElement>(null);
+
   // Form Fields
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -98,6 +101,32 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
   const [githubUrl, setGithubUrl] = useState('');
   const [tags, setTags] = useState('React, TypeScript, Tailwind');
   const [selectedMusic, setSelectedMusic] = useState('Chill Lofi Code Beats');
+
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        if (evt.target?.result) {
+          setImageUrl(evt.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        if (evt.target?.result) {
+          setVideoUrl(evt.target.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   // Collaborators Tagged
   const [selectedCollaborators, setSelectedCollaborators] = useState<string[]>([]);
@@ -243,14 +272,40 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
           </button>
         </div>
 
+        {/* Hidden File Inputs */}
+        <input
+          type="file"
+          ref={imageInputRef}
+          onChange={handleImageFileChange}
+          accept="image/*"
+          className="hidden"
+        />
+        <input
+          type="file"
+          ref={videoInputRef}
+          onChange={handleVideoFileChange}
+          accept="video/*"
+          className="hidden"
+        />
+
         {/* 1. POST GALLERY SELECTION */}
         {createType === 'post' && (
-          <div className="mb-4">
-            <label className="block text-xs font-semibold text-zinc-300 mb-2 flex items-center justify-between">
-              <span>Choose Image from Gallery:</span>
-              <span className="text-[10px] text-zinc-500">Tap to select</span>
-            </label>
-            <div className="grid grid-cols-5 gap-2 mb-3">
+          <div className="mb-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-zinc-300">
+                Choose or Upload Image:
+              </label>
+              <button
+                type="button"
+                onClick={() => imageInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 border border-orange-500/40 rounded-xl text-xs font-bold transition"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Select from Gallery</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-5 gap-2 mb-2">
               {SAMPLE_IMAGE_GALLERY.map((img) => (
                 <div
                   key={img.id}
@@ -271,11 +326,11 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
               ))}
             </div>
 
-            {/* Custom URL Option */}
+            {/* Custom URL Option or Preview */}
             <input
               type="url"
               placeholder="Or paste custom image URL..."
-              value={imageUrl}
+              value={imageUrl.startsWith('data:') ? 'Custom uploaded image attached ✓' : imageUrl}
               onChange={(e) => setImageUrl(e.target.value)}
               className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500"
             />
@@ -285,10 +340,20 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
         {/* 2. REEL GALLERY SELECTION */}
         {createType === 'reel' && (
           <div className="mb-4 space-y-3">
-            <label className="block text-xs font-semibold text-zinc-300 flex items-center justify-between">
-              <span>Choose Reel Video from Gallery:</span>
-              <span className="text-[10px] text-zinc-500">Tap to pick video</span>
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-zinc-300">
+                Choose or Upload Reel Video:
+              </label>
+              <button
+                type="button"
+                onClick={() => videoInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 border border-orange-500/40 rounded-xl text-xs font-bold transition"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Select Video File</span>
+              </button>
+            </div>
+
             <div className="grid grid-cols-3 gap-2">
               {SAMPLE_REEL_GALLERY.map((reel) => (
                 <div
@@ -315,7 +380,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
             <input
               type="url"
               placeholder="Or paste custom video URL (.mp4)..."
-              value={videoUrl}
+              value={videoUrl.startsWith('data:') ? 'Custom uploaded video file attached ✓' : videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
               className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500"
             />

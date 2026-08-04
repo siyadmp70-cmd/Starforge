@@ -55,6 +55,7 @@ interface SocialContextType {
   ) => Promise<void>;
   getConversationWithUser: (otherUserId: string) => Message[];
   reactToMessage: (messageId: string, reaction: string) => Promise<void>;
+  markMessagesAsRead: (otherUserId: string) => Promise<void>;
   markNotificationsAsRead: () => Promise<void>;
   submitVerificationRequest: (userId: string) => Promise<void>;
   processVerificationRequest: (requestId: string, status: 'approved' | 'rejected') => Promise<void>;
@@ -77,61 +78,8 @@ export const SocialProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [comments, setComments] = useState<Comment[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
-  const [verificationRequests, setVerificationRequests] = useState<VerificationRequest[]>(INITIAL_VERIFICATION_REQUESTS);
-  const [reports, setReports] = useState<UserReport[]>(INITIAL_REPORTS);
-
-  // Seed Initial Firestore Collections if empty
-  const seedInitialSocialData = async () => {
-    try {
-      const postsSnap = await getDocs(collection(db, 'posts'));
-      if (postsSnap.empty) {
-        for (const p of INITIAL_POSTS) {
-          await setDoc(doc(db, 'posts', p.id), p);
-        }
-      }
-
-      const reelsSnap = await getDocs(collection(db, 'reels'));
-      if (reelsSnap.empty) {
-        for (const r of INITIAL_REELS) {
-          await setDoc(doc(db, 'reels', r.id), r);
-        }
-      }
-
-      const messagesSnap = await getDocs(collection(db, 'messages'));
-      if (messagesSnap.empty) {
-        for (const m of INITIAL_MESSAGES) {
-          await setDoc(doc(db, 'messages', m.id), m);
-        }
-      }
-
-      const notifsSnap = await getDocs(collection(db, 'notifications'));
-      if (notifsSnap.empty) {
-        for (const n of INITIAL_NOTIFICATIONS) {
-          await setDoc(doc(db, 'notifications', n.id), n);
-        }
-      }
-
-      const verifsSnap = await getDocs(collection(db, 'verification_requests'));
-      if (verifsSnap.empty) {
-        for (const v of INITIAL_VERIFICATION_REQUESTS) {
-          await setDoc(doc(db, 'verification_requests', v.id), v);
-        }
-      }
-
-      const reportsSnap = await getDocs(collection(db, 'reports'));
-      if (reportsSnap.empty) {
-        for (const rep of INITIAL_REPORTS) {
-          await setDoc(doc(db, 'reports', rep.id), rep);
-        }
-      }
-    } catch (err) {
-      console.error('Error seeding social data:', err);
-    }
-  };
-
-  useEffect(() => {
-    seedInitialSocialData();
-  }, []);
+  const [verificationRequests, setVerificationRequests] = useState<VerificationRequest[]>([]);
+  const [reports, setReports] = useState<UserReport[]>([]);
 
   // Real-time Firestore Listeners
   useEffect(() => {
@@ -166,6 +114,8 @@ export const SocialProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           id: d.id,
           ...d.data(),
         })) as Message[];
+        // Sort chronologically by message ID
+        list.sort((a, b) => a.id.localeCompare(b.id));
         setMessages(list);
       },
       (err) => handleFirestoreError(err, OperationType.GET, 'messages')
@@ -396,6 +346,20 @@ export const SocialProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+  const markMessagesAsRead = async (otherUserId: string) => {
+    if (!currentUser) return;
+    const unreadMsgs = messages.filter(
+      (m) => m.senderId === otherUserId && m.receiverId === currentUser.id && !m.read
+    );
+    for (const m of unreadMsgs) {
+      try {
+        await updateDoc(doc(db, 'messages', m.id), { read: true });
+      } catch (e) {
+        console.error('Error marking message as read:', e);
+      }
+    }
+  };
+
   const markNotificationsAsRead = async () => {
     if (!currentUser) return;
     const userNotifs = notifications.filter((n) => n.userId === currentUser.id && !n.read);
@@ -517,6 +481,7 @@ export const SocialProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         sendMessage,
         getConversationWithUser,
         reactToMessage,
+        markMessagesAsRead,
         markNotificationsAsRead,
         submitVerificationRequest,
         processVerificationRequest,

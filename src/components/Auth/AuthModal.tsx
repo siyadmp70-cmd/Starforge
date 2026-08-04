@@ -35,8 +35,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   // OTP Step
   const [otpStep, setOtpStep] = useState(false);
   const [otpCode, setOtpCode] = useState('');
-  const [generatedOtp, setGeneratedOtp] = useState('');
+  const [otpMsg, setOtpMsg] = useState('');
   const [otpError, setOtpError] = useState('');
+  const [resending, setResending] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   if (!isOpen) return null;
@@ -103,27 +104,78 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         return;
       }
 
-      // Simulate generating an OTP code
-      const mockOtp = Math.floor(100000 + Math.random() * 900000).toString();
-      setGeneratedOtp(mockOtp);
+      // Send OTP via server API
+      const response = await fetch('/api/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: regEmail.trim() }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setRegError(data.error || 'Failed to send verification code.');
+        setSubmitting(false);
+        return;
+      }
+
+      setOtpMsg(data.message || `Verification code sent to ${regEmail.trim()}. Please check your email.`);
+      setOtpError('');
       setOtpStep(true);
     } catch (err) {
-      setRegError('Failed to check username availability.');
+      setRegError('Failed to send verification email. Please try again.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setResending(true);
+    setOtpError('');
+    setOtpMsg('');
+    try {
+      const response = await fetch('/api/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: regEmail.trim() }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setOtpMsg('A fresh verification code has been sent to your email address.');
+      } else {
+        setOtpError(data.error || 'Failed to resend verification code.');
+      }
+    } catch (e) {
+      setOtpError('Error resending verification code.');
+    } finally {
+      setResending(false);
     }
   };
 
   const handleVerifyOtpAndRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setOtpError('');
-    if (otpCode.trim() !== generatedOtp && otpCode !== '123456') {
-      setOtpError(`Invalid OTP code. Please enter: ${generatedOtp} (or 123456)`);
+    if (!otpCode.trim() || otpCode.trim().length !== 6) {
+      setOtpError('Please enter the 6-digit OTP code sent to your email.');
       return;
     }
 
     setSubmitting(true);
     try {
+      // Verify OTP with Server API
+      const verifyRes = await fetch('/api/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: regEmail.trim(), otp: otpCode.trim() }),
+      });
+
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok || !verifyData.success) {
+        setOtpError(verifyData.message || 'Invalid or expired OTP code.');
+        setSubmitting(false);
+        return;
+      }
+
+      // Create Firebase Auth user & Firestore profile
       const res = await register({
         username: regUsername,
         fullName: regFullName,
@@ -134,7 +186,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       });
 
       if (res.success) {
-        alert(`Account created successfully as ${role}! Welcome to Starforge.`);
         setOtpStep(false);
         onClose();
       } else {
@@ -462,48 +513,72 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <div className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 text-center">
               <Mail className="w-6 h-6 text-orange-400 mx-auto mb-2" />
               <p className="text-xs font-semibold text-zinc-200">
-                Email OTP sent to <span className="text-orange-400">{regEmail}</span>
+                Verification code sent to <span className="text-orange-400 font-bold">{regEmail}</span>
               </p>
               <p className="text-[11px] text-zinc-400 mt-1">
-                Your simulated verification code is:{' '}
-                <span className="font-mono font-bold text-orange-400 text-sm">{generatedOtp}</span>
+                Please check your email inbox and enter the 6-digit verification code below. Code expires in 10 minutes.
               </p>
             </div>
 
+            {otpMsg && (
+              <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs p-3 rounded-xl font-medium">
+                {otpMsg}
+              </div>
+            )}
+
+            {otpError && (
+              <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs p-3 rounded-xl font-medium">
+                {otpError}
+              </div>
+            )}
+
             <div>
-              <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                Enter 6-Digit OTP Code
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-zinc-300">
+                  Enter 6-Digit Verification Code
+                </label>
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={resending}
+                  className="text-[11px] font-semibold text-orange-400 hover:underline disabled:opacity-50"
+                >
+                  {resending ? 'Sending...' : 'Resend Code'}
+                </button>
+              </div>
               <input
                 type="text"
                 required
                 maxLength={6}
-                placeholder={generatedOtp}
+                placeholder="6-Digit OTP"
                 value={otpCode}
                 onChange={(e) => {
                   setOtpCode(e.target.value);
                   setOtpError('');
                 }}
-                className="w-full text-center tracking-widest text-lg font-mono py-2.5 bg-zinc-800 border border-zinc-700 rounded-xl text-white focus:outline-none focus:border-orange-500"
+                className="w-full text-center tracking-widest text-xl font-mono py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-white focus:outline-none focus:border-orange-500"
               />
-              {otpError && <p className="text-[11px] text-red-400 mt-1">{otpError}</p>}
             </div>
 
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => setOtpStep(false)}
-                className="w-1/3 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300"
+                onClick={() => {
+                  setOtpStep(false);
+                  setOtpCode('');
+                  setOtpError('');
+                }}
+                className="w-1/3 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition"
               >
                 Back
               </button>
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-xs font-bold text-white shadow-lg shadow-orange-500/25 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                className="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-xs font-bold text-white shadow-lg shadow-orange-500/25 flex items-center justify-center gap-1.5 transition disabled:opacity-50"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>{submitting ? 'Creating...' : 'Verify & Create Account'}</span>
+                <span>{submitting ? 'Verifying...' : 'Verify & Create Account'}</span>
               </button>
             </div>
           </form>
