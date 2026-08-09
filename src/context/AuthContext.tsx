@@ -50,6 +50,8 @@ interface AuthContextType {
   getUserByUsername: (username: string) => UserProfile | undefined;
   checkUsernameExists: (username: string) => Promise<boolean>;
   resetPassword: (email: string) => Promise<{ success: boolean; message?: string }>;
+  sendEmailOtp: (email: string) => Promise<{ success: boolean; message?: string }>;
+  verifyEmailOtp: (email: string, otp: string) => Promise<{ success: boolean; message?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -99,10 +101,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         setCurrentUser(matched || null);
       } else {
-        // If no Firebase Auth user, fallback to last selected active user or default
-        const savedId = localStorage.getItem('starforge_current_user_id');
-        const fallback = users.find((u) => u.id === savedId) || users.find((u) => u.username === 'alex_dev') || users[0] || null;
-        setCurrentUser(fallback);
+        // Strict: No automatic login or demo user fallback when not authenticated
+        setCurrentUser(null);
       }
     });
     return () => unsubAuth();
@@ -118,7 +118,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [users]);
 
-  // Unique Username Check in Firestore
+  // Unique Username Check in Firestore (Case-insensitive)
   const checkUsernameExists = async (username: string): Promise<boolean> => {
     const cleanName = username.trim().toLowerCase();
     // Check local in-memory snapshot first
@@ -127,14 +127,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Double check directly with Firestore query
     try {
-      const q = query(collection(db, 'users'), where('username', '==', username.trim()));
-      const snap = await getDocs(q);
-      if (!snap.empty) return true;
-
-      // Case-insensitive check
       const qLower = query(collection(db, 'users'), where('username_lowercase', '==', cleanName));
       const snapLower = await getDocs(qLower);
-      return !snapLower.empty;
+      if (!snapLower.empty) return true;
+
+      const qNorm = query(collection(db, 'users'), where('normalizedUsername', '==', cleanName));
+      const snapNorm = await getDocs(qNorm);
+      return !snapNorm.empty;
     } catch (err) {
       console.error('Error checking username uniqueness:', err);
       return false;
@@ -142,21 +141,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Login handler
-  const login = async (usernameOrEmail: string, password = 'password123'): Promise<{ success: boolean; message?: string }> => {
+  const login = async (usernameOrEmail: string, password = ''): Promise<{ success: boolean; message?: string }> => {
     const term = usernameOrEmail.trim();
-    if (!term) return { success: false, message: 'Please enter a username or email.' };
+    if (!term) return { success: false, message: 'Please enter a username or email address.' };
+    if (!password) return { success: false, message: 'Please enter your password.' };
 
-    // Handle Admin account shortcut or specific credentials
     let userEmail = term;
-    let targetUser = users.find(
+    const targetUser = users.find(
       (u) => u.email.toLowerCase() === term.toLowerCase() || u.username.toLowerCase() === term.toLowerCase()
     );
-
-    // If preconfigured admin login attempt
-    if (term.toLowerCase() === 'siyadmp70@gmail.com' || term.toLowerCase() === 'admin') {
-      userEmail = 'siyadmp70@gmail.com';
-      targetUser = users.find((u) => u.email === 'siyadmp70@gmail.com') || targetUser;
-    }
 
     if (targetUser) {
       if (targetUser.isBanned) {
@@ -165,33 +158,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       userEmail = targetUser.email;
     }
 
-    // Try Firebase Auth Sign In
     try {
-      const pwdToUse = password || (term.toLowerCase() === 'admin' ? 'admincr' : 'password123');
-      const userCred = await signInWithEmailAndPassword(auth, userEmail, pwdToUse);
-      setCurrentUser(targetUser || null);
-      localStorage.setItem('starforge_current_user_id', targetUser?.id || userCred.user.uid);
-      return { success: true };
-    } catch (authError: any) {
-      console.log('Firebase Auth signin fallback/create: ', authError?.code);
-
-      // If user exists in Firestore or preconfigured, create Auth user seamlessly
-      if (targetUser) {
+      const userCred = await signInWithEmailAndPassword(auth, userEmail, password);
+      let loadedDoc = targetUser;
+      if (!loadedDoc) {
         try {
-          const pwdToUse = password || (targetUser.role === 'admin' ? 'admincr' : 'password123');
-          const createdCred = await createUserWithEmailAndPassword(auth, targetUser.email, pwdToUse);
-          setCurrentUser(targetUser);
-          localStorage.setItem('starforge_current_user_id', targetUser.id);
-          return { success: true };
-        } catch (createErr) {
-          // If already exists or error, set current user directly for local preview
-          setCurrentUser(targetUser);
-          localStorage.setItem('starforge_current_user_id', targetUser.id);
-          return { success: true };
+          const uDoc = await getDoc(doc(db, 'users', userCred.user.uid));
+          if (uDoc.exists()) {
+            loadedDoc = { id: uDoc.id, ...uDoc.data() } as UserProfile;
+          }
+        } catch (e) {
+          console.error('Error loading profile doc:', e);
         }
       }
-
-      return { success: false, message: 'Invalid credentials or user not found.' };
+      setCurrentUser(loadedDoc || null);
+      return { success: true };
+    } catch (authError: any) {
+      console.log('Firebase Auth signin error: ', authError?.code);
+      let errorMsg = 'Invalid email/username or password. Please try again.';
+      if (authError?.code === 'auth/user-not-found' || authError?.code === 'auth/invalid-credential') {
+        errorMsg = 'Account not found or password incorrect.';
+      } else if (authError?.code === 'auth/wrong-password') {
+        errorMsg = 'Incorrect password. Please try again.';
+      } else if (authError?.code === 'auth/too-many-requests') {
+        errorMsg = 'Too many failed login attempts. Please wait a moment and try again.';
+      }
+      return { success: false, message: errorMsg };
     }
   };
 
@@ -266,53 +258,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await setDoc(doc(db, 'users', uid), {
         ...newUserProfile,
         username_lowercase: cleanUsername.toLowerCase(),
+        normalizedUsername: cleanUsername.toLowerCase(),
       });
 
       setCurrentUser(newUserProfile);
-      localStorage.setItem('starforge_current_user_id', uid);
       return { success: true };
     } catch (err: any) {
       console.error('Error during Firebase registration:', err);
-      // Fallback: Create directly in Firestore if Auth service has restriction
-      const newId = `user_${Date.now()}`;
-      const newUserProfile: UserProfile = {
-        id: newId,
-        username: cleanUsername,
-        fullName: data.fullName.trim(),
-        email: cleanEmail,
-        phone: data.phone?.trim() || '',
-        role: data.role,
-        avatar: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
-        coverImage: `https://images.unsplash.com/photo-1518770660439-4636190af475?w=1200&auto=format&fit=crop&q=80`,
-        bio:
-          data.role === 'developer'
-            ? 'Fullstack Developer building modern applications.'
-            : 'Client / Employer seeking top software engineering talent.',
-        skills: data.role === 'developer' ? ['React', 'TypeScript', 'Tailwind'] : ['Product Management'],
-        isVerified: false,
-        followersCount: 0,
-        followingCount: 0,
-        postsCount: 0,
-        reelsCount: 0,
-        projectsCount: 0,
-        savedByClients: 0,
-        isBanned: false,
-        isSuspended: false,
-        createdAt: new Date().toISOString(),
-      };
-
-      try {
-        await setDoc(doc(db, 'users', newId), {
-          ...newUserProfile,
-          username_lowercase: cleanUsername.toLowerCase(),
-        });
-        setCurrentUser(newUserProfile);
-        localStorage.setItem('starforge_current_user_id', newId);
-        return { success: true };
-      } catch (dbErr) {
-        handleFirestoreError(dbErr, OperationType.WRITE, 'users');
-        return { success: false, message: 'Could not create account in database.' };
+      let msg = 'Failed to create account. Please try again.';
+      if (err?.code === 'auth/email-already-in-use') {
+        msg = 'An account with this email address already exists. Please log in.';
+      } else if (err?.code === 'auth/weak-password') {
+        msg = 'Password is too weak. Please use at least 6 characters.';
+      } else if (err?.code === 'auth/invalid-email') {
+        msg = 'Please enter a valid email address.';
       }
+      return { success: false, message: msg };
     }
   };
 
@@ -421,6 +382,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const sendEmailOtp = async (email: string): Promise<{ success: boolean; message?: string }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) return { success: false, message: 'Valid email is required.' };
+
+    try {
+      const response = await fetch('/api/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        return { success: false, message: data.error || 'Unable to send verification code.' };
+      }
+
+      // Record in transient Firestore 'verifications' collection for audit / rule access
+      try {
+        await setDoc(doc(db, 'verifications', cleanEmail), {
+          email: cleanEmail,
+          requestedAt: new Date().toISOString(),
+          status: 'pending',
+        });
+      } catch (e) {
+        // Transient write optional fallback
+      }
+
+      return { success: true, message: data.message };
+    } catch (err) {
+      return { success: false, message: 'Unable to send verification email. Please try again.' };
+    }
+  };
+
+  const verifyEmailOtp = async (email: string, otp: string): Promise<{ success: boolean; message?: string }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanOtp = otp.trim();
+    if (!cleanEmail || !cleanOtp) return { success: false, message: 'Email and OTP code are required.' };
+
+    try {
+      const response = await fetch('/api/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, otp: cleanOtp }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        return { success: false, message: data.message || 'Invalid or expired verification code.' };
+      }
+
+      // Mark verified status in transient Firestore collection
+      try {
+        await updateDoc(doc(db, 'verifications', cleanEmail), {
+          status: 'verified',
+          verifiedAt: new Date().toISOString(),
+        });
+      } catch (e) {
+        // Transient write optional fallback
+      }
+
+      return { success: true, message: data.message || 'Email verified successfully.' };
+    } catch (err) {
+      return { success: false, message: 'Error verifying verification code. Please try again.' };
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -441,6 +466,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         getUserByUsername,
         checkUsernameExists,
         resetPassword,
+        sendEmailOtp,
+        verifyEmailOtp,
       }}
     >
       {children}

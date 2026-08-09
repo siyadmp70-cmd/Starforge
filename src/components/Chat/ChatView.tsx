@@ -26,6 +26,7 @@ import {
   ChevronRight,
   Smile,
   Info,
+  Upload,
 } from 'lucide-react';
 
 interface ChatViewProps {
@@ -180,15 +181,91 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }, 2800);
   };
 
-  // Send simulated voice note message
+  // Real Audio Recording State
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<any>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64Audio = reader.result as string;
+          if (currentChatUser) {
+            const mins = Math.floor(recordingSeconds / 60);
+            const secs = recordingSeconds % 60;
+            const timeStr = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+            sendMessage(
+              currentChatUser.id,
+              `🎤 Voice Note (${timeStr})`,
+              undefined,
+              undefined,
+              base64Audio
+            );
+          }
+        };
+        reader.readAsDataURL(audioBlob);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      alert('Microphone permission is required to record voice notes.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    }
+  };
+
   const handleSendVoiceNote = () => {
-    if (!currentChatUser) return;
-    sendMessage(
-      currentChatUser.id,
-      "🎤 Voice Note (0:14) • Click to play audio stream",
-      undefined,
-      undefined
-    );
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      if (evt.target?.result && currentChatUser) {
+        const dataUrl = evt.target.result as string;
+        if (file.type.startsWith('video/')) {
+          sendMessage(currentChatUser.id, `📹 Video Attachment`, undefined, undefined, undefined, dataUrl);
+        } else {
+          sendMessage(currentChatUser.id, `📷 Image Attachment`, dataUrl);
+        }
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   // Attach GitHub project repository
@@ -536,15 +613,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             : 'bg-zinc-800 text-zinc-100 border border-zinc-700/80 rounded-bl-xs'
                         }`}
                       >
-                        {/* Message Text */}
-                        {!isVoiceNote && (
-                          <p className="leading-relaxed whitespace-pre-line text-xs font-normal">
-                            {msg.text}
-                          </p>
-                        )}
-
-                        {/* Interactive Simulated Voice Note */}
-                        {isVoiceNote && (
+                        {/* Voice Note Player */}
+                        {msg.audioUrl ? (
+                          <div className="space-y-1">
+                            <p className="text-[11px] font-bold">{msg.text}</p>
+                            <audio src={msg.audioUrl} controls className="w-full h-8 rounded-lg" />
+                          </div>
+                        ) : isVoiceNote ? (
                           <div className="flex items-center gap-3 p-2 bg-black/30 rounded-2xl border border-white/10">
                             <button
                               onClick={() => setPlayingAudioId(playingAudioId === msg.id ? null : msg.id)}
@@ -560,9 +635,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             <div className="flex-1 space-y-1">
                               <div className="flex items-center justify-between text-[10px] font-bold">
                                 <span>Voice Note</span>
-                                <span>0:14</span>
+                                <span>Audio</span>
                               </div>
-                              {/* Audio Wave Bar Graphics */}
                               <div className="flex items-center gap-1 h-3">
                                 {[40, 70, 30, 90, 100, 60, 40, 80, 50, 90, 70, 30, 80].map((h, idx) => (
                                   <div
@@ -579,6 +653,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                 ))}
                               </div>
                             </div>
+                          </div>
+                        ) : (
+                          <p className="leading-relaxed whitespace-pre-line text-xs font-normal">
+                            {msg.text}
+                          </p>
+                        )}
+
+                        {/* Video Attachment */}
+                        {msg.videoUrl && (
+                          <div className="rounded-2xl overflow-hidden border border-white/20 mt-2">
+                            <video src={msg.videoUrl} controls className="max-h-52 w-full object-cover" />
                           </div>
                         )}
 
@@ -735,12 +820,31 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </div>
             )}
 
+            {/* Hidden File Input for Real Image/Video Attachments */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept="image/*,video/*"
+              className="hidden"
+            />
+
             {/* INPUT FORM BAR */}
             <form
               onSubmit={handleSend}
               className="p-3 bg-zinc-950 border-t border-zinc-800 flex items-center gap-2"
             >
-              {/* Image Toggle */}
+              {/* File Upload Button */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 rounded-xl text-zinc-400 hover:text-orange-400 transition"
+                title="Upload Photo or Video"
+              >
+                <Upload className="w-5 h-5" />
+              </button>
+
+              {/* Image Preset Gallery Toggle */}
               <button
                 type="button"
                 onClick={() => {
@@ -750,7 +854,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 className={`p-2 rounded-xl transition ${
                   showImagePicker ? 'text-orange-400 bg-orange-500/10' : 'text-zinc-400 hover:text-orange-400'
                 }`}
-                title="Attach Image"
+                title="Image Presets / URL"
               >
                 <ImageIcon className="w-5 h-5" />
               </button>
@@ -770,29 +874,42 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <Code2 className="w-5 h-5" />
               </button>
 
-              {/* Instant Voice Note Send */}
+              {/* Voice Note Record / Stop */}
               <button
                 type="button"
                 onClick={handleSendVoiceNote}
-                className="p-2 text-zinc-400 hover:text-orange-400 transition"
-                title="Send Voice Note"
+                className={`p-2 rounded-xl transition ${
+                  isRecording ? 'text-red-500 bg-red-500/20 animate-pulse' : 'text-zinc-400 hover:text-orange-400'
+                }`}
+                title={isRecording ? 'Click to Stop & Send Voice Note' : 'Record Voice Note'}
               >
                 <Mic className="w-5 h-5" />
               </button>
 
-              {/* Input Text Box */}
-              <input
-                type="text"
-                placeholder={`Message @${currentChatUser.username}...`}
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                className="flex-1 px-4 py-2.5 bg-zinc-900 border border-zinc-800 rounded-2xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500 transition"
-              />
+              {/* Input Text Box or Active Recording Badge */}
+              {isRecording ? (
+                <div className="flex-1 px-4 py-2 bg-red-950/60 border border-red-800/80 rounded-2xl text-xs text-red-200 flex items-center justify-between animate-pulse">
+                  <span className="font-bold flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+                    Recording Voice Note: {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}
+                  </span>
+                  <span className="text-[10px] text-red-400">Tap mic icon to send</span>
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  placeholder={`Message @${currentChatUser.username}...`}
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  className="flex-1 px-4 py-2.5 bg-zinc-900 border border-zinc-800 rounded-2xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500 transition"
+                />
+              )}
 
               {/* Send Button */}
               <button
                 type="submit"
-                className="p-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white transition flex items-center justify-center shadow-lg shadow-orange-500/20 active:scale-95"
+                disabled={isRecording}
+                className="p-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white transition flex items-center justify-center shadow-lg shadow-orange-500/20 active:scale-95 disabled:opacity-50"
               >
                 <Send className="w-4 h-4" />
               </button>

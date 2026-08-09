@@ -65,7 +65,7 @@ function AppContent() {
       return;
     }
     setChatTargetUser(user);
-    setIsChatOpen(true);
+    setActiveTab('chat');
   };
 
   // Find shared post/reel if viewing shared link

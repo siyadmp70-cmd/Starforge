@@ -95,8 +95,8 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
   // Form Fields
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [imageUrl, setImageUrl] = useState(SAMPLE_IMAGE_GALLERY[0].url);
-  const [videoUrl, setVideoUrl] = useState(SAMPLE_REEL_GALLERY[0].url);
+  const [imageUrl, setImageUrl] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
   const [demoUrl, setDemoUrl] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
   const [tags, setTags] = useState('React, TypeScript, Tailwind');
@@ -206,7 +206,28 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
     onClose();
   };
 
-  const userRepos = INITIAL_GITHUB_REPOS[currentUser.username] || INITIAL_GITHUB_REPOS['alex_dev'];
+  const userRepos = INITIAL_GITHUB_REPOS[currentUser.username] || [
+    {
+      id: 1,
+      name: `${currentUser.username}-portfolio`,
+      description: 'Personal fullstack web application built with React, TypeScript & Firebase',
+      stars: 12,
+      forks: 3,
+      language: 'TypeScript',
+      url: `https://github.com/${currentUser.username}/${currentUser.username}-portfolio`,
+      updatedAt: '2 days ago',
+    },
+    {
+      id: 2,
+      name: 'starforge-component-library',
+      description: 'Modern Tailwind CSS UI component system for React developers',
+      stars: 45,
+      forks: 8,
+      language: 'TypeScript',
+      url: `https://github.com/${currentUser.username}/starforge-component-library`,
+      updatedAt: 'Yesterday',
+    },
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">

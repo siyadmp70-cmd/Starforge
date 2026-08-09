@@ -9,7 +9,7 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { login, register, checkUsernameExists, resetPassword } = useAuth();
+  const { login, register, checkUsernameExists, resetPassword, sendEmailOtp, verifyEmailOtp } = useAuth();
 
   const [mode, setMode] = useState<'login' | 'register' | 'reset'>('login');
   const [role, setRole] = useState<UserRole>('developer');
@@ -104,21 +104,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         return;
       }
 
-      // Send OTP via server API
-      const response = await fetch('/api/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: regEmail.trim() }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        setRegError(data.error || 'Failed to send verification code.');
+      // Send OTP via AuthContext utility (which records to Firestore 'verifications' collection)
+      const res = await sendEmailOtp(regEmail);
+      if (!res.success) {
+        setRegError(res.message || 'Failed to send verification code.');
         setSubmitting(false);
         return;
       }
 
-      setOtpMsg(data.message || `Verification code sent to ${regEmail.trim()}. Please check your email.`);
+      setOtpMsg(res.message || `Verification code sent to ${regEmail.trim()}. Please check your email.`);
       setOtpError('');
       setOtpStep(true);
     } catch (err) {
@@ -133,16 +127,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     setOtpError('');
     setOtpMsg('');
     try {
-      const response = await fetch('/api/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: regEmail.trim() }),
-      });
-      const data = await response.json();
-      if (response.ok) {
+      const res = await sendEmailOtp(regEmail);
+      if (res.success) {
         setOtpMsg('A fresh verification code has been sent to your email address.');
       } else {
-        setOtpError(data.error || 'Failed to resend verification code.');
+        setOtpError(res.message || 'Failed to resend verification code.');
       }
     } catch (e) {
       setOtpError('Error resending verification code.');
@@ -161,21 +150,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
     setSubmitting(true);
     try {
-      // Verify OTP with Server API
-      const verifyRes = await fetch('/api/verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: regEmail.trim(), otp: otpCode.trim() }),
-      });
-
-      const verifyData = await verifyRes.json();
-      if (!verifyRes.ok || !verifyData.success) {
-        setOtpError(verifyData.message || 'Invalid or expired OTP code.');
+      // Verify OTP against Firestore / AuthContext utility
+      const verifyRes = await verifyEmailOtp(regEmail, otpCode);
+      if (!verifyRes.success) {
+        setOtpError(verifyRes.message || 'Invalid or expired verification code.');
         setSubmitting(false);
         return;
       }
 
-      // Create Firebase Auth user & Firestore profile
+      // Only call createUserWithEmailAndPassword upon success
       const res = await register({
         username: regUsername,
         fullName: regFullName,

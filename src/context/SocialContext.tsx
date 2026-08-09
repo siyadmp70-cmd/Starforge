@@ -51,7 +51,9 @@ interface SocialContextType {
     receiverId: string,
     text: string,
     imageUrl?: string,
-    projectAttachment?: any
+    projectAttachment?: any,
+    audioUrl?: string,
+    videoUrl?: string
   ) => Promise<void>;
   getConversationWithUser: (otherUserId: string) => Message[];
   reactToMessage: (messageId: string, reaction: string) => Promise<void>;
@@ -107,55 +109,67 @@ export const SocialProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       (err) => handleFirestoreError(err, OperationType.GET, 'reels')
     );
 
-    const unsubMessages = onSnapshot(
-      collection(db, 'messages'),
-      (snapshot) => {
-        const list: Message[] = snapshot.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        })) as Message[];
-        // Sort chronologically by message ID
-        list.sort((a, b) => a.id.localeCompare(b.id));
-        setMessages(list);
-      },
-      (err) => handleFirestoreError(err, OperationType.GET, 'messages')
-    );
+    let unsubMessages = () => {};
+    let unsubNotifs = () => {};
+    let unsubVerifs = () => {};
+    let unsubReports = () => {};
 
-    const unsubNotifs = onSnapshot(
-      collection(db, 'notifications'),
-      (snapshot) => {
-        const list: NotificationItem[] = snapshot.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        })) as NotificationItem[];
-        setNotifications(list);
-      },
-      (err) => handleFirestoreError(err, OperationType.GET, 'notifications')
-    );
+    if (currentUser) {
+      unsubMessages = onSnapshot(
+        collection(db, 'messages'),
+        (snapshot) => {
+          const list: Message[] = snapshot.docs.map((d) => ({
+            id: d.id,
+            ...d.data(),
+          })) as Message[];
+          // Sort chronologically by message ID
+          list.sort((a, b) => a.id.localeCompare(b.id));
+          setMessages(list);
+        },
+        (err) => handleFirestoreError(err, OperationType.GET, 'messages')
+      );
 
-    const unsubVerifs = onSnapshot(
-      collection(db, 'verification_requests'),
-      (snapshot) => {
-        const list: VerificationRequest[] = snapshot.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        })) as VerificationRequest[];
-        setVerificationRequests(list);
-      },
-      (err) => handleFirestoreError(err, OperationType.GET, 'verification_requests')
-    );
+      unsubNotifs = onSnapshot(
+        collection(db, 'notifications'),
+        (snapshot) => {
+          const list: NotificationItem[] = snapshot.docs.map((d) => ({
+            id: d.id,
+            ...d.data(),
+          })) as NotificationItem[];
+          setNotifications(list);
+        },
+        (err) => handleFirestoreError(err, OperationType.GET, 'notifications')
+      );
 
-    const unsubReports = onSnapshot(
-      collection(db, 'reports'),
-      (snapshot) => {
-        const list: UserReport[] = snapshot.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        })) as UserReport[];
-        setReports(list);
-      },
-      (err) => handleFirestoreError(err, OperationType.GET, 'reports')
-    );
+      unsubVerifs = onSnapshot(
+        collection(db, 'verification_requests'),
+        (snapshot) => {
+          const list: VerificationRequest[] = snapshot.docs.map((d) => ({
+            id: d.id,
+            ...d.data(),
+          })) as VerificationRequest[];
+          setVerificationRequests(list);
+        },
+        (err) => handleFirestoreError(err, OperationType.GET, 'verification_requests')
+      );
+
+      unsubReports = onSnapshot(
+        collection(db, 'reports'),
+        (snapshot) => {
+          const list: UserReport[] = snapshot.docs.map((d) => ({
+            id: d.id,
+            ...d.data(),
+          })) as UserReport[];
+          setReports(list);
+        },
+        (err) => handleFirestoreError(err, OperationType.GET, 'reports')
+      );
+    } else {
+      setMessages([]);
+      setNotifications([]);
+      setVerificationRequests([]);
+      setReports([]);
+    }
 
     return () => {
       unsubPosts();
@@ -165,7 +179,7 @@ export const SocialProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       unsubVerifs();
       unsubReports();
     };
-  }, []);
+  }, [currentUser?.id]);
 
   const createPost = async (postData: Omit<Post, 'id' | 'likesCount' | 'commentsCount' | 'createdAt'>) => {
     const newId = `post_${Date.now()}`;
@@ -292,20 +306,25 @@ export const SocialProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     receiverId: string,
     text: string,
     imageUrl?: string,
-    projectAttachment?: any
+    projectAttachment?: any,
+    audioUrl?: string,
+    videoUrl?: string
   ) => {
     if (!currentUser) return;
 
     const msgId = `msg_${Date.now()}`;
-    const newMsg: Message = {
+    const newMsg: Message & { participants: string[] } = {
       id: msgId,
       senderId: currentUser.id,
       receiverId,
       text,
       imageUrl: imageUrl || '',
+      audioUrl: audioUrl || '',
+      videoUrl: videoUrl || '',
       projectAttachment: projectAttachment || null,
       read: false,
       createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      participants: [currentUser.id, receiverId],
     };
 
     try {

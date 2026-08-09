@@ -40,8 +40,14 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  const isClosingOrOffline = 
+    errMsg.toLowerCase().includes('closing') || 
+    errMsg.toLowerCase().includes('hidden') || 
+    errMsg.toLowerCase().includes('offline');
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -56,19 +62,26 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+
+  if (isClosingOrOffline) {
+    console.warn('Firestore Notice (Transient/Offline):', errMsg);
+  } else {
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+  }
   return errInfo;
 }
 
-// Test connection on boot
+// Test connection on boot safely
 async function testConnection() {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+    if (typeof window !== 'undefined' && document.visibilityState === 'visible') {
+      await getDocFromServer(doc(db, 'test', 'connection'));
     }
+  } catch (error) {
+    // Ignore transient connection/offline/closing errors on startup
   }
 }
 
-testConnection();
+if (typeof window !== 'undefined') {
+  testConnection();
+}

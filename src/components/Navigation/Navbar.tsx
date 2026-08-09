@@ -89,8 +89,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <div className="flex items-center gap-2">
                         <Code2 className="w-4 h-4 text-orange-400" />
                         <div>
-                          <div className="font-semibold">Developer Account</div>
-                          <div className="text-[10px] text-zinc-500">Alex Rivera (Verified)</div>
+                          <div className="font-semibold">Developer Role</div>
+                          <div className="text-[10px] text-zinc-500">@{currentUser.username}</div>
                         </div>
                       </div>
                       {currentUser.role === 'developer' && (

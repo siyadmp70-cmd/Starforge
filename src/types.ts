@@ -107,6 +107,8 @@ export interface Message {
   receiverId: string;
   text: string;
   imageUrl?: string;
+  audioUrl?: string;
+  videoUrl?: string;
   projectAttachment?: {
     title: string;
     description: string;
