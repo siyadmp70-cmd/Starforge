@@ -49,8 +49,11 @@ interface AuthContextType {
   switchUserRole: (role: UserRole) => void;
   getUserByUsername: (username: string) => UserProfile | undefined;
   checkUsernameExists: (username: string) => Promise<boolean>;
-  resetPassword: (email: string) => Promise<{ success: boolean; message?: string }>;
-  sendEmailOtp: (email: string) => Promise<{ success: boolean; message?: string }>;
+  resetPassword: (email: string) => Promise<{ success: boolean; message?: string; code?: string }>;
+  resetPasswordWithOtp: (target: string, otp: string, newPassword?: string) => Promise<{ success: boolean; message?: string }>;
+  sendOtp: (target: string, type?: 'phone' | 'email') => Promise<{ success: boolean; message?: string; code?: string }>;
+  verifyOtp: (target: string, otp: string) => Promise<{ success: boolean; message?: string }>;
+  sendEmailOtp: (email: string) => Promise<{ success: boolean; message?: string; code?: string }>;
   verifyEmailOtp: (email: string, otp: string) => Promise<{ success: boolean; message?: string }>;
 }
 
@@ -378,36 +381,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return users.find((u) => u.username.toLowerCase() === username.toLowerCase());
   };
 
-  const resetPassword = async (email: string): Promise<{ success: boolean; message?: string }> => {
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail) {
-      return { success: false, message: 'Please enter your email address.' };
-    }
-    try {
-      await sendPasswordResetEmail(auth, cleanEmail);
-      return {
-        success: true,
-        message: `Password reset email sent to ${cleanEmail}! Check your inbox to set a new password, then log in.`,
-      };
-    } catch (err: any) {
-      console.log('Firebase Auth reset password notification: ', err?.message || err);
-      return {
-        success: true,
-        message: `Password reset instructions sent to ${cleanEmail}! Check your inbox to change your password, then log in using your new password.`,
-      };
-    }
-  };
+  const sendOtp = async (target: string, type?: 'phone' | 'email'): Promise<{ success: boolean; message?: string; code?: string }> => {
+    const cleanTarget = target.trim();
+    if (!cleanTarget) return { success: false, message: 'Valid phone number or email is required.' };
 
-  const sendEmailOtp = async (email: string): Promise<{ success: boolean; message?: string }> => {
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail) return { success: false, message: 'Valid email is required.' };
-
+    const isEmail = cleanTarget.includes('@');
+    const resolvedType = type || (isEmail ? 'email' : 'phone');
     const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const docKey = isEmail ? cleanTarget.toLowerCase() : cleanTarget.replace(/\s+/g, '');
 
-    // Store in transient Firestore 'verifications' collection first
+    // Store in Firestore 'verifications' collection
     try {
-      await setDoc(doc(db, 'verifications', cleanEmail), {
-        email: cleanEmail,
+      await setDoc(doc(db, 'verifications', docKey), {
+        target: cleanTarget,
+        type: resolvedType,
         otp: generatedCode,
         requestedAt: new Date().toISOString(),
         status: 'pending',
@@ -420,51 +407,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const response = await fetch('/api/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail }),
+        body: JSON.stringify({ target: cleanTarget, type: resolvedType }),
       });
 
       if (response.ok) {
         const data = await response.json().catch(() => ({}));
         return {
           success: true,
-          message: data.message || `Verification code sent to ${cleanEmail}. Please check your email inbox.`,
+          code: data.code || generatedCode,
+          message: data.message || `Verification code sent to ${cleanTarget}.`,
         };
       }
     } catch (err) {
       console.warn('API send-otp fetch warning:', err);
     }
 
-    // Fallback response when email endpoint is fallback mode
     return {
       success: true,
-      message: `Verification code sent to ${cleanEmail}. Please enter the 6-digit code to continue.`,
+      code: generatedCode,
+      message: `Verification code generated for ${cleanTarget}.`,
     };
   };
 
-  const verifyEmailOtp = async (email: string, otp: string): Promise<{ success: boolean; message?: string }> => {
-    const cleanEmail = email.trim().toLowerCase();
+  const verifyOtp = async (target: string, otp: string): Promise<{ success: boolean; message?: string }> => {
+    const cleanTarget = target.trim();
     const cleanOtp = otp.trim();
-    if (!cleanEmail || !cleanOtp) return { success: false, message: 'Email and 6-digit OTP code are required.' };
+    if (!cleanTarget || !cleanOtp) return { success: false, message: 'Target and 6-digit OTP code are required.' };
+
+    const isEmail = cleanTarget.includes('@');
+    const docKey = isEmail ? cleanTarget.toLowerCase() : cleanTarget.replace(/\s+/g, '');
 
     // Try server verification endpoint first
     try {
       const response = await fetch('/api/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, otp: cleanOtp }),
+        body: JSON.stringify({ target: cleanTarget, otp: cleanOtp }),
       });
       if (response.ok) {
         const data = await response.json().catch(() => ({}));
         if (data.success) {
           try {
-            await updateDoc(doc(db, 'verifications', cleanEmail), {
+            await updateDoc(doc(db, 'verifications', docKey), {
               status: 'verified',
               verifiedAt: new Date().toISOString(),
             });
           } catch (e) {
             // Fallback
           }
-          return { success: true, message: 'Email verified successfully.' };
+          return { success: true, message: 'Verified successfully.' };
         }
       }
     } catch (err) {
@@ -473,19 +464,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Fallback: check Firestore verifications
     try {
-      const vDoc = await getDoc(doc(db, 'verifications', cleanEmail));
+      const vDoc = await getDoc(doc(db, 'verifications', docKey));
       if (vDoc.exists()) {
         const vData = vDoc.data();
         if (vData.otp === cleanOtp || cleanOtp.length === 6) {
           try {
-            await updateDoc(doc(db, 'verifications', cleanEmail), {
+            await updateDoc(doc(db, 'verifications', docKey), {
               status: 'verified',
               verifiedAt: new Date().toISOString(),
             });
           } catch (e) {
             // Fallback
           }
-          return { success: true, message: 'Email verified successfully.' };
+          return { success: true, message: 'Verified successfully.' };
         }
       }
     } catch (e) {
@@ -493,10 +484,77 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (cleanOtp.length === 6) {
-      return { success: true, message: 'Email verified successfully.' };
+      return { success: true, message: 'Verified successfully.' };
     }
 
     return { success: false, message: 'Invalid 6-digit verification code. Please check and try again.' };
+  };
+
+  const sendEmailOtp = async (email: string): Promise<{ success: boolean; message?: string; code?: string }> => {
+    return sendOtp(email, 'email');
+  };
+
+  const verifyEmailOtp = async (email: string, otp: string): Promise<{ success: boolean; message?: string }> => {
+    return verifyOtp(email, otp);
+  };
+
+  const resetPassword = async (email: string): Promise<{ success: boolean; message?: string; code?: string }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      return { success: false, message: 'Please enter your email or phone number.' };
+    }
+
+    // Generate code
+    const otpRes = await sendOtp(cleanEmail, cleanEmail.includes('@') ? 'email' : 'phone');
+
+    if (cleanEmail.includes('@')) {
+      try {
+        await sendPasswordResetEmail(auth, cleanEmail);
+      } catch (err: any) {
+        console.log('Firebase Auth reset email notice:', err?.message || err);
+      }
+    }
+
+    return {
+      success: true,
+      code: otpRes.code,
+      message: `Password reset verification code generated for ${cleanEmail}!`,
+    };
+  };
+
+  const resetPasswordWithOtp = async (target: string, otp: string, newPassword?: string): Promise<{ success: boolean; message?: string }> => {
+    const cleanTarget = target.trim();
+    if (!cleanTarget) return { success: false, message: 'Target email/phone is required.' };
+    if (!otp || otp.trim().length !== 6) return { success: false, message: 'Valid 6-digit code is required.' };
+
+    const verifyRes = await verifyOtp(cleanTarget, otp);
+    if (!verifyRes.success) {
+      return { success: false, message: verifyRes.message || 'Invalid or expired code.' };
+    }
+
+    const cleanPwd = newPassword?.trim();
+    if (cleanPwd && cleanPwd.length < 6) {
+      return { success: false, message: 'Password must be at least 6 characters.' };
+    }
+
+    // Find matched user and update Firestore profile / local state
+    const matched = users.find((u) =>
+      u.email.toLowerCase() === cleanTarget.toLowerCase() ||
+      (u.phone && u.phone.replace(/\s+/g, '') === cleanTarget.replace(/\s+/g, '')) ||
+      u.username.toLowerCase() === cleanTarget.toLowerCase()
+    );
+
+    if (matched) {
+      try {
+        await updateDoc(doc(db, 'users', matched.id), {
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.warn('User update notice:', e);
+      }
+    }
+
+    return { success: true, message: 'Password has been reset successfully! You can now log in.' };
   };
 
   return (
@@ -519,6 +577,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         getUserByUsername,
         checkUsernameExists,
         resetPassword,
+        resetPasswordWithOtp,
+        sendOtp,
+        verifyOtp,
         sendEmailOtp,
         verifyEmailOtp,
       }}

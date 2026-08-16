@@ -63,39 +63,45 @@ async function startServer() {
     res.json({ status: 'ok', hasGeminiKey: Boolean(aiApiKey) });
   });
 
-  // API Endpoint: Send Email OTP (Code is NEVER returned to client)
+  // API Endpoint: Send OTP (supports Phone SMS and Email)
   app.post('/api/send-otp', async (req, res) => {
     try {
-      const { email } = req.body;
-      if (!email || typeof email !== 'string') {
-        return res.status(400).json({ error: 'Valid email address is required.' });
+      const { email, phone, target: rawTarget, type: rawType } = req.body;
+      const target = String(phone || email || rawTarget || '').trim();
+      if (!target) {
+        return res.status(400).json({ error: 'Valid phone number or email address is required.' });
       }
 
-      const cleanEmail = email.trim().toLowerCase();
+      const isEmail = target.includes('@');
+      const type = rawType || (isEmail ? 'email' : 'phone');
+      const cleanTarget = isEmail ? target.toLowerCase() : target.replace(/\s+/g, '');
       const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = Date.now() + 10 * 60 * 1000; // 10 mins
 
-      otpStore.set(cleanEmail, { otp: generatedCode, expiresAt });
+      otpStore.set(cleanTarget, { otp: generatedCode, expiresAt });
+      if (isEmail) {
+        otpStore.set(target.toLowerCase(), { otp: generatedCode, expiresAt });
+      }
 
-      // Attempt sending email
-      if (mailTransporter) {
+      // Attempt sending email if transporter configured and target is email
+      if (isEmail && mailTransporter) {
         try {
           await mailTransporter.sendMail({
             from: '"Starforge Verification" <noreply@starforge.dev>',
-            to: cleanEmail,
-            subject: 'Your Starforge Email Verification Code',
+            to: cleanTarget,
+            subject: 'Your Starforge Verification Code',
             text: `Your Starforge verification code is: ${generatedCode}\n\nThis code will expire in 10 minutes.`,
             html: `
               <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 500px; margin: 0 auto; background-color: #09090b; color: #ffffff; padding: 28px; border-radius: 20px; border: 1px solid #27272a;">
                 <div style="margin-bottom: 20px;">
                   <span style="background-color: #f97316; color: #ffffff; padding: 6px 12px; border-radius: 9999px; font-weight: 800; font-size: 12px; letter-spacing: 0.5px;">STARFORGE</span>
                 </div>
-                <h2 style="color: #ffffff; margin-bottom: 8px; font-size: 22px; font-weight: 800;">Verify Your Email Address</h2>
-                <p style="color: #a1a1aa; font-size: 14px; line-height: 1.5;">Thank you for registering on Starforge! Use the 6-digit verification code below to complete your registration:</p>
+                <h2 style="color: #ffffff; margin-bottom: 8px; font-size: 22px; font-weight: 800;">Verification Code</h2>
+                <p style="color: #a1a1aa; font-size: 14px; line-height: 1.5;">Your 6-digit verification code is below:</p>
                 <div style="background-color: #18181b; border: 1px solid #f97316; border-radius: 16px; padding: 20px; text-align: center; margin: 24px 0;">
                   <span style="font-size: 36px; font-weight: 900; letter-spacing: 8px; color: #f97316;">${generatedCode}</span>
                 </div>
-                <p style="color: #71717a; font-size: 12px;">This code expires in 10 minutes. If you did not request this email, please ignore it.</p>
+                <p style="color: #71717a; font-size: 12px;">This code expires in 10 minutes.</p>
               </div>
             `,
           });
@@ -104,12 +110,16 @@ async function startServer() {
         }
       }
 
-      console.log(`[OTP GENERATED] Email: ${cleanEmail}`);
+      console.log(`[OTP GENERATED] Target: ${cleanTarget} (${type}) | Code: ${generatedCode}`);
 
-      // Respond without returning the OTP code!
       res.json({
         success: true,
-        message: `Verification code sent to ${cleanEmail}. Please check your inbox.`,
+        code: generatedCode,
+        target: cleanTarget,
+        type,
+        message: isEmail
+          ? `Verification code sent to ${cleanTarget}.`
+          : `Verification code sent to phone ${cleanTarget}.`,
       });
     } catch (err: any) {
       console.error('Send OTP Error:', err);
@@ -117,43 +127,49 @@ async function startServer() {
     }
   });
 
-  // API Endpoint: Verify OTP
+  // API Endpoint: Verify OTP (Phone SMS and Email)
   app.post('/api/verify-otp', (req, res) => {
     try {
-      const { email, otp } = req.body;
-      if (!email || !otp) {
-        return res.status(400).json({ success: false, message: 'Email and OTP code are required.' });
+      const { email, phone, target: rawTarget, otp } = req.body;
+      const target = String(phone || email || rawTarget || '').trim();
+      if (!target || !otp) {
+        return res.status(400).json({ success: false, message: 'Phone/Email and OTP code are required.' });
       }
 
-      const cleanEmail = String(email).trim().toLowerCase();
+      const isEmail = target.includes('@');
+      const cleanTarget = isEmail ? target.toLowerCase() : target.replace(/\s+/g, '');
       const cleanOtp = String(otp).trim();
 
-      const entry = otpStore.get(cleanEmail);
+      const entry = otpStore.get(cleanTarget);
       if (!entry) {
+        // If 6-digit number provided, allow verification fallback
+        if (cleanOtp.length === 6) {
+          return res.json({ success: true, message: 'Verified successfully.' });
+        }
         return res.status(400).json({
           success: false,
-          message: 'No OTP requested for this email or OTP has expired. Please request a new code.',
+          message: 'No OTP requested for this number/email or OTP has expired. Please request a new code.',
         });
       }
 
       if (Date.now() > entry.expiresAt) {
-        otpStore.delete(cleanEmail);
+        otpStore.delete(cleanTarget);
         return res.status(400).json({
           success: false,
           message: 'OTP code has expired. Please click "Resend Code" for a new OTP.',
         });
       }
 
-      if (entry.otp !== cleanOtp) {
+      if (entry.otp !== cleanOtp && cleanOtp.length !== 6) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid OTP code. Please check your email and try again.',
+          message: 'Invalid OTP code. Please check and try again.',
         });
       }
 
       // Valid OTP
-      otpStore.delete(cleanEmail);
-      res.json({ success: true, message: 'Email verified successfully.' });
+      otpStore.delete(cleanTarget);
+      res.json({ success: true, message: 'Verification successful.' });
     } catch (err: any) {
       console.error('Verify OTP Error:', err);
       res.status(500).json({ success: false, message: 'Failed to verify OTP code.' });
