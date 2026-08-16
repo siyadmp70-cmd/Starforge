@@ -76,7 +76,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         <button
           onClick={() => {
             onNavigateTab('chat');
-            onOpenChat();
           }}
           className={`flex flex-col items-center gap-1 transition ${
             activeTab === 'chat' ? 'text-orange-500 scale-110' : 'hover:text-zinc-200'

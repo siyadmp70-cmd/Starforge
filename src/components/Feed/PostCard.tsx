@@ -33,7 +33,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onOpenProfile, onRequi
   const comments = getCommentsForPost(post.id);
 
   const authorProfile = users.find((u) => u.id === post.authorId);
-  const isFollowing = currentUser && authorProfile ? currentUser.followingCount > 0 : false;
+  const isFollowing = currentUser?.following?.includes(post.authorId) || false;
 
   const handleLike = () => {
     if (!currentUser) {
@@ -143,6 +143,28 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onOpenProfile, onRequi
         <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed whitespace-pre-line">
           {post.content}
         </p>
+
+        {/* Collaborators */}
+        {post.collaborators && post.collaborators.length > 0 && (
+          <div className="pt-2 border-t border-zinc-800/50 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold text-zinc-400">Collaborators:</span>
+            {post.collaborators.map((collab) => (
+              <button
+                key={collab.id || collab.username}
+                type="button"
+                onClick={() => onOpenProfile(collab.username)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold border border-zinc-700/60 transition"
+              >
+                <img
+                  src={collab.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop'}
+                  alt={collab.username}
+                  className="w-4 h-4 rounded-full object-cover"
+                />
+                <span>@{collab.username}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Tags */}
         {post.tags && post.tags.length > 0 && (

@@ -156,7 +156,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={() => {
                   onNavigateTab('chat');
-                  onOpenChat();
                 }}
                 className={`relative p-2 rounded-full transition ${
                   activeTab === 'chat'

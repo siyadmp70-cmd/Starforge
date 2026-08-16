@@ -10,7 +10,6 @@ import {
   Code2,
   Mic,
   X,
-  CheckCheck,
   Sparkles,
   ExternalLink,
   Github,
@@ -19,14 +18,14 @@ import {
   User,
   Heart,
   MessageCircle,
-  Filter,
   Check,
-  ShieldCheck,
   Briefcase,
   ChevronRight,
   Smile,
   Info,
   Upload,
+  Plus,
+  Edit3,
 } from 'lucide-react';
 
 interface ChatViewProps {
@@ -54,7 +53,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'messaged' | 'unread'>('all');
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [modalSearchTerm, setModalSearchTerm] = useState('');
 
   // Selected Active Chat User
   const [activeUser, setActiveUser] = useState<any>(initialTargetUser || null);
@@ -101,74 +101,55 @@ export const ChatView: React.FC<ChatViewProps> = ({
     );
   };
 
-  // Check if currentUser messaged a specific user before
-  const getHasMessagedBefore = (otherUserId: string) => {
-    const chatMsgs = getUserMessages(otherUserId);
-    return chatMsgs.length > 0;
-  };
+  // Find all users with whom currentUser has exchanged at least one message
+  const conversationUsers = allOtherUsers.filter((u) => {
+    const msgs = getUserMessages(u.id);
+    return msgs.length > 0;
+  });
 
-  // Auto select first user if none active
-  useEffect(() => {
-    if (!activeUser && allOtherUsers.length > 0) {
-      setActiveUser(allOtherUsers[0]);
-    }
-  }, [allOtherUsers, activeUser]);
+  // If activeUser is set (e.g. from search), ensure they are in the list if not already
+  const displayedConversationUsers = [...conversationUsers];
+  if (activeUser && !displayedConversationUsers.some((u) => u.id === activeUser.id)) {
+    displayedConversationUsers.unshift(activeUser);
+  }
 
-  // Filtered list of users according to search term & filter tab
-  const filteredUsers = allOtherUsers.filter((u) => {
-    const userMsgs = getUserMessages(u.id);
-    const hasMessaged = userMsgs.length > 0;
-    const unreadCount = userMsgs.filter((m) => m.receiverId === currentUser.id && !m.read).length;
-
-    // Search filter
+  // Filter conversation list by search term
+  const filteredConversations = displayedConversationUsers.filter((u) => {
     const matchesSearch =
       u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
       u.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       u.role.toLowerCase().includes(searchTerm.toLowerCase());
-
-    if (!matchesSearch) return false;
-
-    if (activeFilter === 'messaged') {
-      return hasMessaged;
-    }
-    if (activeFilter === 'unread') {
-      return unreadCount > 0;
-    }
-
-    return true;
+    return matchesSearch;
   });
 
-  // Calculate statistics for filter headers
-  const messagedUsersCount = allOtherUsers.filter((u) => getHasMessagedBefore(u.id)).length;
-  const unreadUsersCount = allOtherUsers.filter(
-    (u) => getUserMessages(u.id).filter((m) => m.receiverId === currentUser.id && !m.read).length > 0
-  ).length;
+  // Search results for New Chat modal
+  const newChatSearchResults = allOtherUsers.filter((u) => {
+    if (!modalSearchTerm.trim()) return true;
+    const term = modalSearchTerm.toLowerCase();
+    return (
+      u.username.toLowerCase().includes(term) ||
+      u.fullName.toLowerCase().includes(term) ||
+      u.role.toLowerCase().includes(term)
+    );
+  });
 
-  const currentChatUser = activeUser || filteredUsers[0] || allOtherUsers[0];
-  const activeChatMessages = currentChatUser ? getUserMessages(currentChatUser.id) : [];
-  const activeUserHasMessaged = currentChatUser ? getHasMessagedBefore(currentChatUser.id) : false;
+  const activeChatMessages = activeUser ? getUserMessages(activeUser.id) : [];
 
   // Scroll to bottom on new messages or user change and mark as read
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    if (currentChatUser?.id) {
-      markMessagesAsRead(currentChatUser.id);
+    if (activeUser?.id) {
+      markMessagesAsRead(activeUser.id);
     }
-  }, [messages, activeUser, currentChatUser?.id]);
-
-  // Repositories for project attachments
-  const currentUserRepos =
-    INITIAL_GITHUB_REPOS[currentUser.username] ||
-    INITIAL_GITHUB_REPOS['alex_dev'] ||
-    [];
+  }, [messages, activeUser?.id]);
 
   // Send standard text / image message
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() && !customImageUrl) return;
-    if (!currentChatUser) return;
+    if (!activeUser) return;
 
-    sendMessage(currentChatUser.id, inputText, customImageUrl || undefined);
+    sendMessage(activeUser.id, inputText, customImageUrl || undefined);
 
     setInputText('');
     setCustomImageUrl('');
@@ -181,7 +162,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }, 2800);
   };
 
-  // Real Audio Recording State
+  // Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -206,12 +187,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
         const reader = new FileReader();
         reader.onloadend = () => {
           const base64Audio = reader.result as string;
-          if (currentChatUser) {
+          if (activeUser) {
             const mins = Math.floor(recordingSeconds / 60);
             const secs = recordingSeconds % 60;
             const timeStr = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
             sendMessage(
-              currentChatUser.id,
+              activeUser.id,
               `🎤 Voice Note (${timeStr})`,
               undefined,
               undefined,
@@ -256,12 +237,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
     const reader = new FileReader();
     reader.onload = (evt) => {
-      if (evt.target?.result && currentChatUser) {
+      if (evt.target?.result && activeUser) {
         const dataUrl = evt.target.result as string;
         if (file.type.startsWith('video/')) {
-          sendMessage(currentChatUser.id, `📹 Video Attachment`, undefined, undefined, undefined, dataUrl);
+          sendMessage(activeUser.id, `📹 Video Attachment`, undefined, undefined, undefined, dataUrl);
         } else {
-          sendMessage(currentChatUser.id, `📷 Image Attachment`, dataUrl);
+          sendMessage(activeUser.id, `📷 Image Attachment`, dataUrl);
         }
       }
     };
@@ -270,9 +251,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // Attach GitHub project repository
   const handleAttachRepo = (repo: any) => {
-    if (!currentChatUser) return;
+    if (!activeUser) return;
     sendMessage(
-      currentChatUser.id,
+      activeUser.id,
       `Check out my featured Starforge repository "${repo.name}":`,
       undefined,
       {
@@ -305,6 +286,84 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       )}
 
+      {/* NEW CHAT / USER SEARCH MODAL */}
+      {showNewChatModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl text-white space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-orange-500/20 text-orange-400 flex items-center justify-center">
+                  <Edit3 className="w-4 h-4" />
+                </div>
+                <h3 className="font-bold text-sm">New Direct Message</h3>
+              </div>
+              <button
+                onClick={() => setShowNewChatModal(false)}
+                className="p-1 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Search input in modal */}
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
+              <input
+                type="text"
+                placeholder="Search by username, full name, or role..."
+                value={modalSearchTerm}
+                onChange={(e) => setModalSearchTerm(e.target.value)}
+                autoFocus
+                className="w-full pl-9 pr-3 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500"
+              />
+            </div>
+
+            {/* User List */}
+            <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
+              {newChatSearchResults.length === 0 ? (
+                <div className="text-center py-8 text-xs text-zinc-500">
+                  No users found matching "{modalSearchTerm}".
+                </div>
+              ) : (
+                newChatSearchResults.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveUser(u);
+                      setShowNewChatModal(false);
+                      setModalSearchTerm('');
+                    }}
+                    className="w-full flex items-center justify-between p-2.5 rounded-2xl hover:bg-zinc-800/80 transition text-left border border-transparent hover:border-zinc-700/60 group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={u.avatar}
+                        alt={u.username}
+                        className="w-10 h-10 rounded-full object-cover border border-zinc-700"
+                      />
+                      <div>
+                        <div className="flex items-center gap-1 font-bold text-xs text-white group-hover:text-orange-400 transition">
+                          <span>{u.fullName}</span>
+                          {u.isVerified && <VerificationBadge size="sm" />}
+                        </div>
+                        <div className="text-[11px] text-zinc-400">
+                          @{u.username} • <span className="capitalize">{u.role}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <span className="text-xs text-orange-400 font-semibold px-2.5 py-1 rounded-lg bg-orange-500/10 group-hover:bg-orange-500 group-hover:text-white transition">
+                      Chat
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* LEFT SIDEBAR: CONVERSATION LIST & SEARCH */}
       <div className="w-full md:w-80 lg:w-96 border-b md:border-b-0 md:border-r border-zinc-800 flex flex-col bg-zinc-950/80">
         {/* Top Header Bar */}
@@ -315,29 +374,29 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <span>Direct Messages</span>
             </h3>
             <p className="text-[11px] text-zinc-400">
-              {messagedUsersCount > 0
-                ? `${messagedUsersCount} Messaged • Search anyone`
-                : 'Search any developer or client'}
+              {conversationUsers.length > 0
+                ? `${conversationUsers.length} active conversation${conversationUsers.length === 1 ? '' : 's'}`
+                : 'No active conversations'}
             </p>
           </div>
 
-          {isModalMode && onCloseModal && (
-            <button
-              onClick={onCloseModal}
-              className="p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          )}
+          <button
+            onClick={() => setShowNewChatModal(true)}
+            className="p-2 rounded-xl bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/30 transition flex items-center gap-1 text-xs font-bold"
+            title="Start New Message"
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">New</span>
+          </button>
         </div>
 
-        {/* Search Bar Input (Search anyone on platform like Instagram) */}
+        {/* Search Bar Input */}
         <div className="p-3 border-b border-zinc-800/80 bg-zinc-900/40">
           <div className="relative">
             <Search className="absolute left-3.5 top-3 w-4 h-4 text-zinc-500" />
             <input
               type="text"
-              placeholder="Search user, name, or role..."
+              placeholder="Search conversations..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-8 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500 transition"
@@ -351,65 +410,46 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </button>
             )}
           </div>
-
-          {/* Filter Tabs (All / Messaged Before / Unread) */}
-          <div className="flex items-center gap-1 mt-2.5">
-            <button
-              onClick={() => setActiveFilter('all')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${
-                activeFilter === 'all'
-                  ? 'bg-orange-500 text-white shadow-sm'
-                  : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
-              }`}
-            >
-              All ({allOtherUsers.length})
-            </button>
-            <button
-              onClick={() => setActiveFilter('messaged')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
-                activeFilter === 'messaged'
-                  ? 'bg-orange-500 text-white shadow-sm'
-                  : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
-              }`}
-            >
-              <span>Messaged Before</span>
-              <span className="text-[10px] bg-black/30 px-1.5 py-0.2 rounded-full">
-                {messagedUsersCount}
-              </span>
-            </button>
-            {unreadUsersCount > 0 && (
-              <button
-                onClick={() => setActiveFilter('unread')}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
-                  activeFilter === 'unread'
-                    ? 'bg-orange-500 text-white shadow-sm'
-                    : 'bg-zinc-800/80 text-amber-400 hover:text-white'
-                }`}
-              >
-                <span>Unread</span>
-                <span className="text-[10px] bg-orange-500 text-white px-1.5 py-0.2 rounded-full font-bold">
-                  {unreadUsersCount}
-                </span>
-              </button>
-            )}
-          </div>
         </div>
 
         {/* User Conversation List */}
         <div className="flex-1 overflow-y-auto space-y-1 p-2">
-          {filteredUsers.length === 0 ? (
+          {displayedConversationUsers.length === 0 ? (
+            <div className="text-center py-16 px-4 text-zinc-500 space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-zinc-600">
+                <MessageCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="font-semibold text-xs text-zinc-300">No messages yet</p>
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  Search for developers or clients to start a conversation.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNewChatModal(true)}
+                className="px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs shadow-md shadow-orange-500/20 transition inline-flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Start Messaging</span>
+              </button>
+            </div>
+          ) : filteredConversations.length === 0 ? (
             <div className="text-center py-10 px-4 text-zinc-500 text-xs">
-              <p className="font-semibold mb-1">No matching users found.</p>
-              <p className="text-[11px] text-zinc-600">
-                Try searching for names like "Alex", "Maya", or "TechCorp".
-              </p>
+              <p className="font-semibold mb-1">No matching conversations.</p>
+              <button
+                type="button"
+                onClick={() => setShowNewChatModal(true)}
+                className="text-orange-400 hover:underline font-bold mt-2 text-[11px]"
+              >
+                Search all users on platform →
+              </button>
             </div>
           ) : (
-            filteredUsers.map((u) => {
+            filteredConversations.map((u) => {
               const uMsgs = getUserMessages(u.id);
-              const hasMessaged = uMsgs.length > 0;
               const lastMsg = uMsgs[uMsgs.length - 1];
-              const isSelected = currentChatUser?.id === u.id;
+              const isSelected = activeUser?.id === u.id;
               const unreadCount = uMsgs.filter((m) => m.receiverId === currentUser.id && !m.read).length;
 
               return (
@@ -448,33 +488,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[11px] text-zinc-400 truncate">@{u.username}</span>
-                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 capitalize border border-zinc-700/60">
+                      <span className="text-[11px] text-zinc-400">@{u.username}</span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 capitalize font-medium">
                         {u.role}
                       </span>
                     </div>
 
-                    {/* Has Messaged Before Badge vs New Chat Badge */}
-                    <div className="flex items-center justify-between gap-1">
-                      {hasMessaged ? (
-                        <p className="text-[11px] text-orange-400/90 font-medium truncate flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-orange-500 shrink-0" />
-                          <span className="truncate">
-                            {lastMsg
-                              ? lastMsg.senderId === currentUser.id
-                                ? `You: ${lastMsg.text}`
-                                : lastMsg.text
-                              : `${uMsgs.length} messages exchanged`}
-                          </span>
-                        </p>
-                      ) : (
-                        <span className="text-[10px] text-amber-400/80 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                          ✨ New Chat • Not Messaged Yet
-                        </span>
-                      )}
+                    {/* Last message preview */}
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] text-zinc-400 truncate">
+                        {lastMsg ? (
+                          lastMsg.senderId === currentUser.id ? (
+                            <span>You: {lastMsg.text}</span>
+                          ) : (
+                            <span className={unreadCount > 0 ? 'font-bold text-white' : ''}>
+                              {lastMsg.text}
+                            </span>
+                          )
+                        ) : (
+                          <span className="italic text-zinc-500">Draft / New chat</span>
+                        )}
+                      </p>
 
                       {unreadCount > 0 && (
-                        <span className="w-4 h-4 rounded-full bg-orange-500 text-white text-[9px] font-bold flex items-center justify-center shrink-0 shadow-sm">
+                        <span className="w-5 h-5 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0 ml-1">
                           {unreadCount}
                         </span>
                       )}
@@ -487,17 +524,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       </div>
 
-      {/* RIGHT MAIN CHAT DISPLAY */}
-      <div className="flex-1 flex flex-col bg-zinc-900">
-        {currentChatUser ? (
+      {/* RIGHT PANEL: ACTIVE CHAT THREAD OR EMPTY STATE */}
+      <div className="flex-1 flex flex-col bg-zinc-900/90 h-full relative">
+        {activeUser ? (
           <>
-            {/* Top Bar Active Chat Info */}
-            <div className="p-3.5 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/60 backdrop-blur-md">
+            {/* Chat Thread Header */}
+            <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/80 backdrop-blur-md">
               <div className="flex items-center gap-3">
                 <div className="relative">
                   <img
-                    src={currentChatUser.avatar}
-                    alt={currentChatUser.username}
+                    src={activeUser.avatar}
+                    alt={activeUser.username}
                     className="w-10 h-10 rounded-full object-cover border border-zinc-700"
                   />
                   <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-zinc-900" />
@@ -505,423 +542,248 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                 <div>
                   <div className="flex items-center gap-1.5 font-bold text-sm text-white">
-                    <span>{currentChatUser.fullName}</span>
-                    {currentChatUser.isVerified && <VerificationBadge size="sm" />}
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 font-semibold capitalize ml-1 border border-zinc-700/60">
-                      {currentChatUser.role}
-                    </span>
+                    <span>{activeUser.fullName}</span>
+                    {activeUser.isVerified && <VerificationBadge size="sm" />}
                   </div>
-
-                  <div className="flex items-center gap-2 text-[11px] text-zinc-400 font-medium">
-                    <span className="text-emerald-400 flex items-center gap-1 font-semibold">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      Active now
-                    </span>
-                    <span>• @{currentChatUser.username}</span>
+                  <div className="flex items-center gap-2 text-xs text-zinc-400">
+                    <span>@{activeUser.username}</span>
+                    <span>•</span>
+                    <span className="capitalize text-orange-400">{activeUser.role}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Top Bar Action Buttons */}
-              <div className="flex items-center gap-2">
-                {onOpenProfile && (
-                  <button
-                    onClick={() => onOpenProfile(currentChatUser.username)}
-                    className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-200 transition flex items-center gap-1"
-                  >
-                    <User className="w-3.5 h-3.5 text-orange-400" />
-                    <span className="hidden sm:inline">Profile</span>
-                  </button>
-                )}
-
-                {isModalMode && onCloseModal && (
-                  <button
-                    onClick={onCloseModal}
-                    className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                )}
-              </div>
+              {onOpenProfile && (
+                <button
+                  onClick={() => onOpenProfile(activeUser.username)}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold border border-zinc-700 transition"
+                >
+                  View Profile
+                </button>
+              )}
             </div>
 
-            {/* MESSAGES THREAD BODY */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-4">
-              {/* Profile Intro Hero Banner at top of chat thread */}
-              <div className="text-center py-6 border-b border-zinc-800/80 mb-4 bg-zinc-950/30 rounded-3xl p-6">
-                <div className="relative w-20 h-20 mx-auto mb-3">
-                  <img
-                    src={currentChatUser.avatar}
-                    alt={currentChatUser.username}
-                    className="w-full h-full rounded-full object-cover border-2 border-orange-500 shadow-xl"
-                  />
-                  {currentChatUser.isVerified && (
-                    <div className="absolute -bottom-1 -right-1">
-                      <VerificationBadge size="md" showLabel={false} />
-                    </div>
-                  )}
-                </div>
-
-                <h4 className="font-extrabold text-base text-white">{currentChatUser.fullName}</h4>
-                <p className="text-xs text-orange-400 font-semibold">@{currentChatUser.username}</p>
-                <p className="text-xs text-zinc-400 max-w-sm mx-auto mt-1 leading-relaxed">
-                  {currentChatUser.bio || 'Starforge Network Member'}
-                </p>
-
-                {/* Status Indicator */}
-                <div className="mt-3 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-xs text-zinc-300">
-                  {activeUserHasMessaged ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="text-emerald-400 font-bold">
-                        Messaged Before ({activeChatMessages.length} Messages)
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                      <span className="text-amber-400 font-bold">
-                        No Previous Messages • Say Hello!
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Chat Bubbles */}
+            {/* Messages Thread Stream */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {activeChatMessages.length === 0 ? (
-                <div className="text-center py-10 text-zinc-500 text-xs">
-                  <p className="font-semibold text-zinc-400 mb-1">
-                    Start a conversation with @{currentChatUser.username}
+                <div className="text-center py-16 space-y-3">
+                  <img
+                    src={activeUser.avatar}
+                    alt={activeUser.username}
+                    className="w-16 h-16 rounded-full object-cover mx-auto border-2 border-zinc-700 shadow-xl"
+                  />
+                  <div>
+                    <h4 className="font-bold text-sm text-white">{activeUser.fullName}</h4>
+                    <p className="text-xs text-zinc-400">@{activeUser.username}</p>
+                  </div>
+                  <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                    This is the start of your direct messages with {activeUser.fullName}. Say hello or share your projects!
                   </p>
-                  <p>Send a message, attach code, or share a voice note!</p>
                 </div>
               ) : (
-                activeChatMessages.map((msg) => {
-                  const isMe = msg.senderId === currentUser.id;
-                  const isVoiceNote = msg.text.includes('Voice Note');
-
+                activeChatMessages.map((m) => {
+                  const isMine = m.senderId === currentUser.id;
                   return (
                     <div
-                      key={msg.id}
-                      className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group`}
+                      key={m.id}
+                      className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} space-y-1`}
                     >
                       <div
-                        className={`max-w-[85%] sm:max-w-[75%] rounded-3xl p-4 text-xs shadow-xl space-y-2 relative transition ${
-                          isMe
-                            ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white rounded-br-xs'
-                            : 'bg-zinc-800 text-zinc-100 border border-zinc-700/80 rounded-bl-xs'
+                        className={`max-w-[78%] sm:max-w-md rounded-2xl p-3.5 text-xs shadow-md ${
+                          isMine
+                            ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-br-none'
+                            : 'bg-zinc-800 text-zinc-200 rounded-bl-none border border-zinc-700/60'
                         }`}
                       >
-                        {/* Voice Note Player */}
-                        {msg.audioUrl ? (
-                          <div className="space-y-1">
-                            <p className="text-[11px] font-bold">{msg.text}</p>
-                            <audio src={msg.audioUrl} controls className="w-full h-8 rounded-lg" />
-                          </div>
-                        ) : isVoiceNote ? (
-                          <div className="flex items-center gap-3 p-2 bg-black/30 rounded-2xl border border-white/10">
+                        {/* Attached Image if any */}
+                        {m.imageUrl && (
+                          <img
+                            src={m.imageUrl}
+                            alt="Attachment"
+                            onClick={() => setPreviewImage(m.imageUrl || null)}
+                            className="rounded-xl mb-2 max-h-56 w-full object-cover cursor-pointer hover:opacity-90 transition border border-black/20"
+                          />
+                        )}
+
+                        {/* Attached Audio Voice Note if any */}
+                        {m.audioUrl && (
+                          <div className="mb-2 p-2 bg-black/30 rounded-xl flex items-center gap-2">
                             <button
-                              onClick={() => setPlayingAudioId(playingAudioId === msg.id ? null : msg.id)}
-                              className="w-9 h-9 rounded-full bg-white text-orange-600 flex items-center justify-center shadow-md hover:scale-105 transition"
+                              type="button"
+                              onClick={() => {
+                                if (playingAudioId === m.id) {
+                                  setPlayingAudioId(null);
+                                } else {
+                                  setPlayingAudioId(m.id);
+                                  const audio = new Audio(m.audioUrl);
+                                  audio.play();
+                                  audio.onended = () => setPlayingAudioId(null);
+                                }
+                              }}
+                              className="w-8 h-8 rounded-full bg-white text-zinc-900 flex items-center justify-center shrink-0 shadow"
                             >
-                              {playingAudioId === msg.id ? (
-                                <Pause className="w-4 h-4 fill-orange-600" />
+                              {playingAudioId === m.id ? (
+                                <Pause className="w-4 h-4 fill-zinc-900" />
                               ) : (
-                                <Play className="w-4 h-4 fill-orange-600 ml-0.5" />
+                                <Play className="w-4 h-4 fill-zinc-900 ml-0.5" />
                               )}
                             </button>
-
-                            <div className="flex-1 space-y-1">
-                              <div className="flex items-center justify-between text-[10px] font-bold">
-                                <span>Voice Note</span>
-                                <span>Audio</span>
-                              </div>
-                              <div className="flex items-center gap-1 h-3">
-                                {[40, 70, 30, 90, 100, 60, 40, 80, 50, 90, 70, 30, 80].map((h, idx) => (
-                                  <div
-                                    key={idx}
-                                    style={{ height: `${h}%` }}
-                                    className={`w-1 rounded-full transition-all ${
-                                      playingAudioId === msg.id
-                                        ? 'bg-white animate-pulse'
-                                        : isMe
-                                        ? 'bg-white/60'
-                                        : 'bg-orange-400'
-                                    }`}
-                                  />
-                                ))}
+                            <div className="flex-1">
+                              <span className="text-[11px] font-bold">Voice Note</span>
+                              <div className="h-1 bg-white/20 rounded-full mt-1 overflow-hidden">
+                                <div
+                                  className={`h-full bg-white transition-all duration-300 ${
+                                    playingAudioId === m.id ? 'w-full animate-pulse' : 'w-0'
+                                  }`}
+                                />
                               </div>
                             </div>
                           </div>
-                        ) : (
-                          <p className="leading-relaxed whitespace-pre-line text-xs font-normal">
-                            {msg.text}
-                          </p>
                         )}
 
-                        {/* Video Attachment */}
-                        {msg.videoUrl && (
-                          <div className="rounded-2xl overflow-hidden border border-white/20 mt-2">
-                            <video src={msg.videoUrl} controls className="max-h-52 w-full object-cover" />
-                          </div>
-                        )}
-
-                        {/* Image Attachment */}
-                        {msg.imageUrl && (
-                          <div
-                            onClick={() => setPreviewImage(msg.imageUrl!)}
-                            className="relative rounded-2xl overflow-hidden cursor-pointer group/img border border-white/20"
-                          >
-                            <img
-                              src={msg.imageUrl}
-                              alt="Attachment"
-                              className="max-h-52 w-full object-cover group-hover/img:scale-105 transition duration-300"
-                            />
-                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition flex items-center justify-center text-white font-bold text-[11px]">
-                              Tap to Expand 🔍
+                        {/* Attached Project Repo if any */}
+                        {m.projectAttachment && (
+                          <div className="mb-2 p-3 bg-black/40 rounded-xl border border-white/10 space-y-1">
+                            <div className="flex items-center gap-1.5 font-bold text-white text-xs">
+                              <Github className="w-4 h-4 text-orange-400" />
+                              <span>{m.projectAttachment.title}</span>
                             </div>
-                          </div>
-                        )}
-
-                        {/* Project / Repository Attachment Card */}
-                        {msg.projectAttachment && (
-                          <div className="p-3.5 rounded-2xl bg-black/40 border border-white/20 space-y-1.5 text-left">
-                            <div className="font-bold flex items-center gap-1.5 text-white">
-                              <Github className="w-4 h-4 text-orange-300" />
-                              <span>{msg.projectAttachment.title}</span>
-                            </div>
-                            <p className="text-[11px] text-zinc-200">
-                              {msg.projectAttachment.description}
+                            <p className="text-[11px] text-zinc-300 leading-tight">
+                              {m.projectAttachment.description}
                             </p>
-                            {msg.projectAttachment.githubUrl && (
+                            {m.projectAttachment.githubUrl && (
                               <a
-                                href={msg.projectAttachment.githubUrl}
+                                href={m.projectAttachment.githubUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-[11px] font-bold text-orange-200 hover:underline pt-1"
+                                className="inline-flex items-center gap-1 text-[10px] text-orange-300 font-bold hover:underline pt-1"
                               >
-                                <span>View GitHub Repository</span>
+                                <span>Open on GitHub</span>
                                 <ExternalLink className="w-3 h-3" />
                               </a>
                             )}
                           </div>
                         )}
 
-                        {/* Time & Delivery Status */}
-                        <div className="flex items-center justify-between text-[9px] opacity-80 pt-1 border-t border-white/10">
-                          <span>{msg.createdAt}</span>
-                          {isMe && <CheckCheck className="w-3.5 h-3.5 text-white" />}
-                        </div>
+                        {/* Text Content */}
+                        <p className="leading-relaxed whitespace-pre-line font-medium">{m.text}</p>
                       </div>
 
-                      {/* Instagram Double-Tap / Hover Emoji Reactions Bar */}
-                      <div className="flex items-center gap-1 mt-1 opacity-90 transition">
-                        {['❤️', '🔥', '👍', '🚀', '😂'].map((emoji) => (
-                          <button
-                            key={emoji}
-                            onClick={() => reactToMessage(msg.id, emoji)}
-                            className="hover:scale-125 transition text-xs p-0.5"
-                            title={`React ${emoji}`}
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                        {msg.reaction && (
-                          <span className="ml-1 bg-zinc-800 text-white rounded-full px-2 py-0.5 text-[10px] border border-zinc-700 shadow-sm font-bold">
-                            {msg.reaction}
-                          </span>
+                      {/* Timestamp & Read Receipts */}
+                      <div className="flex items-center gap-1 text-[10px] text-zinc-500 px-1">
+                        <span>{m.createdAt}</span>
+                        {isMine && (
+                          <Check className="w-3 h-3 text-orange-400" />
                         )}
                       </div>
                     </div>
                   );
                 })
               )}
-
-              {/* Typing Indicator */}
-              {isTyping && (
-                <div className="flex items-center gap-2 text-xs text-zinc-400 italic bg-zinc-800/60 p-2.5 rounded-2xl w-max animate-pulse">
-                  <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping" />
-                  <span>@{currentChatUser.username} is typing a response...</span>
-                </div>
-              )}
-
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Custom Image URL Selector Drawer if toggled */}
-            {showImagePicker && (
-              <div className="p-3 bg-zinc-950 border-t border-zinc-800 space-y-2 animate-in slide-in-from-bottom-2">
-                <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
-                  <span>Attach Image or UI Screenshot:</span>
-                  <button
-                    onClick={() => setShowImagePicker(false)}
-                    className="text-zinc-500 hover:text-white"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  {SAMPLE_CHAT_IMAGES.map((imgUrl, idx) => (
-                    <div
-                      key={idx}
-                      onClick={() => setCustomImageUrl(imgUrl)}
-                      className={`relative h-16 rounded-xl overflow-hidden cursor-pointer border-2 transition ${
-                        customImageUrl === imgUrl ? 'border-orange-500 scale-105' : 'border-zinc-800 opacity-70'
-                      }`}
-                    >
-                      <img src={imgUrl} alt="Preset" className="w-full h-full object-cover" />
-                    </div>
-                  ))}
-                </div>
-
-                <input
-                  type="url"
-                  placeholder="Or paste custom image URL (https://...)"
-                  value={customImageUrl}
-                  onChange={(e) => setCustomImageUrl(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500"
-                />
-              </div>
-            )}
-
-            {/* Repository Picker Drawer if toggled */}
-            {showRepoPicker && (
-              <div className="p-3 bg-zinc-950 border-t border-zinc-800 space-y-2 animate-in slide-in-from-bottom-2">
-                <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
-                  <span>Share GitHub Repository:</span>
-                  <button
-                    onClick={() => setShowRepoPicker(false)}
-                    className="text-zinc-500 hover:text-white"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                  {currentUserRepos.map((repo) => (
-                    <div
-                      key={repo.id}
-                      onClick={() => handleAttachRepo(repo)}
-                      className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-orange-500/50 text-xs cursor-pointer flex items-center justify-between transition"
-                    >
-                      <div>
-                        <div className="font-bold text-white flex items-center gap-1.5">
-                          <Code2 className="w-3.5 h-3.5 text-orange-400" />
-                          <span>{repo.name}</span>
-                        </div>
-                        <p className="text-[10px] text-zinc-400 truncate max-w-xs">{repo.description}</p>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-orange-500" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Hidden File Input for Real Image/Video Attachments */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              accept="image/*,video/*"
-              className="hidden"
-            />
-
-            {/* INPUT FORM BAR */}
+            {/* Input Message Footer */}
             <form
               onSubmit={handleSend}
-              className="p-3 bg-zinc-950 border-t border-zinc-800 flex items-center gap-2"
+              className="p-3 border-t border-zinc-800 bg-zinc-950/90 flex flex-col gap-2"
             >
-              {/* File Upload Button */}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="p-2 rounded-xl text-zinc-400 hover:text-orange-400 transition"
-                title="Upload Photo or Video"
-              >
-                <Upload className="w-5 h-5" />
-              </button>
-
-              {/* Image Preset Gallery Toggle */}
-              <button
-                type="button"
-                onClick={() => {
-                  setShowImagePicker(!showImagePicker);
-                  setShowRepoPicker(false);
-                }}
-                className={`p-2 rounded-xl transition ${
-                  showImagePicker ? 'text-orange-400 bg-orange-500/10' : 'text-zinc-400 hover:text-orange-400'
-                }`}
-                title="Image Presets / URL"
-              >
-                <ImageIcon className="w-5 h-5" />
-              </button>
-
-              {/* Repo Toggle */}
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRepoPicker(!showRepoPicker);
-                  setShowImagePicker(false);
-                }}
-                className={`p-2 rounded-xl transition ${
-                  showRepoPicker ? 'text-orange-400 bg-orange-500/10' : 'text-zinc-400 hover:text-orange-400'
-                }`}
-                title="Share GitHub Project"
-              >
-                <Code2 className="w-5 h-5" />
-              </button>
-
-              {/* Voice Note Record / Stop */}
-              <button
-                type="button"
-                onClick={handleSendVoiceNote}
-                className={`p-2 rounded-xl transition ${
-                  isRecording ? 'text-red-500 bg-red-500/20 animate-pulse' : 'text-zinc-400 hover:text-orange-400'
-                }`}
-                title={isRecording ? 'Click to Stop & Send Voice Note' : 'Record Voice Note'}
-              >
-                <Mic className="w-5 h-5" />
-              </button>
-
-              {/* Input Text Box or Active Recording Badge */}
-              {isRecording ? (
-                <div className="flex-1 px-4 py-2 bg-red-950/60 border border-red-800/80 rounded-2xl text-xs text-red-200 flex items-center justify-between animate-pulse">
-                  <span className="font-bold flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-                    Recording Voice Note: {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}
-                  </span>
-                  <span className="text-[10px] text-red-400">Tap mic icon to send</span>
+              {/* Custom Image URL or Preset Preview if selected */}
+              {customImageUrl && (
+                <div className="flex items-center gap-2 p-2 bg-zinc-800 rounded-xl">
+                  <img
+                    src={customImageUrl}
+                    alt="Preview"
+                    className="w-10 h-10 object-cover rounded-lg"
+                  />
+                  <span className="text-xs text-zinc-300 truncate flex-1">Image attached</span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomImageUrl('')}
+                    className="text-zinc-400 hover:text-white p-1"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-              ) : (
-                <input
-                  type="text"
-                  placeholder={`Message @${currentChatUser.username}...`}
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  className="flex-1 px-4 py-2.5 bg-zinc-900 border border-zinc-800 rounded-2xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500 transition"
-                />
               )}
 
-              {/* Send Button */}
-              <button
-                type="submit"
-                disabled={isRecording}
-                className="p-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white transition flex items-center justify-center shadow-lg shadow-orange-500/20 active:scale-95 disabled:opacity-50"
-              >
-                <Send className="w-4 h-4" />
-              </button>
+              {/* Action Toolbar */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  accept="image/*,video/*"
+                  className="hidden"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2 rounded-xl text-zinc-400 hover:text-orange-400 hover:bg-zinc-800 transition"
+                  title="Upload Image/Video"
+                >
+                  <ImageIcon className="w-5 h-5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSendVoiceNote}
+                  className={`p-2 rounded-xl transition ${
+                    isRecording
+                      ? 'bg-red-500 text-white animate-pulse'
+                      : 'text-zinc-400 hover:text-orange-400 hover:bg-zinc-800'
+                  }`}
+                  title={isRecording ? 'Stop & Send Recording' : 'Record Voice Note'}
+                >
+                  <Mic className="w-5 h-5" />
+                </button>
+
+                <input
+                  type="text"
+                  placeholder={
+                    isRecording
+                      ? `Recording Voice Note (${recordingSeconds}s)...`
+                      : `Message @${activeUser.username}...`
+                  }
+                  value={inputText}
+                  disabled={isRecording}
+                  onChange={(e) => setInputText(e.target.value)}
+                  className="flex-1 py-2.5 px-4 bg-zinc-800/80 border border-zinc-700/80 rounded-2xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500 transition"
+                />
+
+                <button
+                  type="submit"
+                  disabled={!inputText.trim() && !customImageUrl}
+                  className="p-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md shadow-orange-500/20 disabled:opacity-40 transition"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
             </form>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 text-xs p-6 text-center">
-            <MessageCircle className="w-12 h-12 text-zinc-700 mb-3" />
-            <h4 className="font-bold text-zinc-300 text-sm mb-1">Your Direct Messages</h4>
-            <p className="max-w-xs">
-              Search for any developer or client in the left panel to view message history or start a new conversation.
-            </p>
+          /* INSTAGRAM STYLE EMPTY STATE WHEN NO CHAT IS SELECTED */
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-amber-500/20 via-orange-500/20 to-amber-600/20 border border-orange-500/30 flex items-center justify-center shadow-2xl">
+              <MessageCircle className="w-10 h-10 text-orange-400" />
+            </div>
+
+            <div className="space-y-1 max-w-sm">
+              <h3 className="text-xl font-extrabold text-white">Your Messages</h3>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Send private messages, coding attachments, and voice notes to web developers or clients.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowNewChatModal(true)}
+              className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 font-bold text-xs text-white shadow-lg shadow-orange-500/25 transition hover:scale-105 flex items-center gap-2"
+            >
+              <Send className="w-4 h-4" />
+              <span>Send Message</span>
+            </button>
           </div>
         )}
       </div>

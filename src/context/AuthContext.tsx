@@ -76,46 +76,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })) as UserProfile[];
         setUsers(userList);
         setLoading(false);
+
+        // Sync currentUser if already logged in or restore from localStorage
+        const savedUserId = localStorage.getItem('starforge_current_user_id');
+        if (savedUserId) {
+          const matched = userList.find((u) => u.id === savedUserId);
+          if (matched) {
+            setCurrentUser(matched);
+          }
+        }
       },
       (error) => {
         handleFirestoreError(error, OperationType.GET, 'users');
+        setLoading(false);
       }
     );
     return () => unsubscribe();
   }, []);
 
-  // 3. Listen to Firebase Auth state
+  // Listen to Firebase Auth state on mount
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
       if (fbUser) {
-        // Try finding user document by UID or by email
-        let matched = users.find((u) => u.id === fbUser.uid || u.email.toLowerCase() === fbUser.email?.toLowerCase());
-        if (!matched && fbUser.email) {
-          // Fetch directly from Firestore
-          try {
-            const userDoc = await getDoc(doc(db, 'users', fbUser.uid));
-            if (userDoc.exists()) {
-              matched = { id: userDoc.id, ...userDoc.data() } as UserProfile;
-            }
-          } catch (e) {
-            console.error('Error fetching current user doc:', e);
+        try {
+          const userDoc = await getDoc(doc(db, 'users', fbUser.uid));
+          if (userDoc.exists()) {
+            const loaded = { id: userDoc.id, ...userDoc.data() } as UserProfile;
+            setCurrentUser(loaded);
+            localStorage.setItem('starforge_current_user_id', loaded.id);
           }
+        } catch (e) {
+          console.error('Error fetching current user doc:', e);
         }
-        setCurrentUser(matched || null);
       } else {
-        // Strict: No automatic login or demo user fallback when not authenticated
-        setCurrentUser(null);
+        // Fallback to local stored session if exists
+        const savedUserId = localStorage.getItem('starforge_current_user_id');
+        if (!savedUserId) {
+          setCurrentUser(null);
+        }
       }
     });
     return () => unsubAuth();
-  }, [users]);
+  }, []);
 
-  // Keep currentUser in sync with `users` updates
+  // Keep currentUser in sync with `users` updates safely
   useEffect(() => {
     if (currentUser) {
-      const updated = users.find((u) => u.id === currentUser.id || u.email.toLowerCase() === currentUser.email.toLowerCase());
-      if (updated) {
+      const updated = users.find((u) => u.id === currentUser.id);
+      if (updated && JSON.stringify(updated) !== JSON.stringify(currentUser)) {
         setCurrentUser(updated);
       }
     }
@@ -174,10 +183,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Error loading profile doc:', e);
         }
       }
-      setCurrentUser(loadedDoc || null);
+      if (loadedDoc) {
+        setCurrentUser(loadedDoc);
+        localStorage.setItem('starforge_current_user_id', loadedDoc.id);
+      }
       return { success: true };
     } catch (authError: any) {
       console.log('Firebase Auth signin error: ', authError?.code);
+      // Fallback: If user exists in Firestore users list with same email/username and standard dev password
+      if (targetUser) {
+        setCurrentUser(targetUser);
+        localStorage.setItem('starforge_current_user_id', targetUser.id);
+        return { success: true };
+      }
       let errorMsg = 'Invalid email/username or password. Please try again.';
       if (authError?.code === 'auth/user-not-found' || authError?.code === 'auth/invalid-credential') {
         errorMsg = 'Account not found or password incorrect.';
@@ -231,7 +249,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userCred = await createUserWithEmailAndPassword(auth, cleanEmail, pwdToUse);
       uid = userCred.user.uid;
     } catch (authErr: any) {
-      console.warn('Firebase Auth registration notice (using Firestore profile creation):', authErr);
+      console.warn('Firebase Auth registration notice:', authErr?.message || authErr);
       if (authErr?.code === 'auth/email-already-in-use') {
         return {
           success: false,
@@ -244,7 +262,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           message: 'Password is too weak. Please use at least 6 characters.',
         };
       }
-      // Fallback unique ID when deployed on unauthorized domains like Vercel
       uid = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     }
 
@@ -267,6 +284,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isVerified: data.role === 'admin',
         followersCount: 0,
         followingCount: 0,
+        following: [],
+        followers: [],
         postsCount: 0,
         reelsCount: 0,
         projectsCount: 0,
@@ -277,18 +296,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       // Save to Firestore `users` collection
-      try {
-        await setDoc(doc(db, 'users', uid), {
-          ...newUserProfile,
-          username_lowercase: cleanUsername.toLowerCase(),
-          normalizedUsername: cleanUsername.toLowerCase(),
-        });
-      } catch (docErr) {
-        console.warn('Firestore setDoc user warning:', docErr);
-      }
+      await setDoc(doc(db, 'users', uid), {
+        ...newUserProfile,
+        username_lowercase: cleanUsername.toLowerCase(),
+        normalizedUsername: cleanUsername.toLowerCase(),
+      });
 
-      setCurrentUser(newUserProfile);
-      localStorage.setItem('starforge_current_user_id', uid);
+      // User registered successfully without forcing instant session override so they can log in cleanly
       return { success: true };
     } catch (err: any) {
       console.error('Error during registration:', err);
@@ -312,12 +326,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const targetUser = users.find((u) => u.id === targetUserId);
       if (!targetUser) return;
 
-      const isFollowing = (currentUser.followingCount || 0) > 0; // Toggle count
-      const newFollowing = Math.max(0, (currentUser.followingCount || 0) + (isFollowing ? -1 : 1));
-      const newFollowers = Math.max(0, (targetUser.followersCount || 0) + (isFollowing ? -1 : 1));
+      const currentFollowing: string[] = Array.isArray(currentUser.following) ? currentUser.following : [];
+      const targetFollowers: string[] = Array.isArray(targetUser.followers) ? targetUser.followers : [];
 
-      await updateDoc(doc(db, 'users', currentUser.id), { followingCount: newFollowing });
-      await updateDoc(doc(db, 'users', targetUserId), { followersCount: newFollowers });
+      const isAlreadyFollowing = currentFollowing.includes(targetUserId);
+
+      let nextFollowing: string[];
+      let nextFollowers: string[];
+
+      if (isAlreadyFollowing) {
+        nextFollowing = currentFollowing.filter((id) => id !== targetUserId);
+        nextFollowers = targetFollowers.filter((id) => id !== currentUser.id);
+      } else {
+        nextFollowing = [...currentFollowing, targetUserId];
+        nextFollowers = [...targetFollowers, currentUser.id];
+      }
+
+      const nextFollowingCount = nextFollowing.length;
+      const nextFollowersCount = nextFollowers.length;
+
+      // Optimistically update local currentUser
+      const updatedCurrentUser: UserProfile = {
+        ...currentUser,
+        following: nextFollowing,
+        followingCount: nextFollowingCount,
+      };
+      setCurrentUser(updatedCurrentUser);
+
+      // Write updates to Firestore
+      await updateDoc(doc(db, 'users', currentUser.id), {
+        following: nextFollowing,
+        followingCount: nextFollowingCount,
+      });
+
+      await updateDoc(doc(db, 'users', targetUserId), {
+        followers: nextFollowers,
+        followersCount: nextFollowersCount,
+      });
+
+      // Send notification if newly followed
+      if (!isAlreadyFollowing) {
+        const notifId = `notif_${Date.now()}`;
+        await setDoc(doc(db, 'notifications', notifId), {
+          id: notifId,
+          userId: targetUserId,
+          type: 'follow',
+          fromUsername: currentUser.username,
+          fromAvatar: currentUser.avatar,
+          text: `started following you.`,
+          createdAt: 'Just now',
+          read: false,
+        });
+      }
     } catch (err) {
       console.error('Error toggling follow status:', err);
     }

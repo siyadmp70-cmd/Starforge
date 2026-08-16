@@ -10,7 +10,6 @@ import { ProfilePage } from './components/Profile/ProfilePage';
 import { AdminDashboard } from './components/Admin/AdminDashboard';
 import { AuthModal } from './components/Auth/AuthModal';
 import { CreateModal } from './components/Create/CreateModal';
-import { ChatDrawer } from './components/Chat/ChatDrawer';
 import { ChatView } from './components/Chat/ChatView';
 import { PostCard } from './components/Feed/PostCard';
 import { Sparkles, Code2, Lock, ArrowRight, Eye, ShieldCheck, Github, Users, Video } from 'lucide-react';
@@ -27,10 +26,9 @@ function AppContent() {
   const [sharedItemType, setSharedItemType] = useState<'post' | 'reel' | 'project' | null>(null);
   const [sharedItemId, setSharedItemId] = useState<string | null>(null);
 
-  // Modals & Drawers
+  // Modals
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatTargetUser, setChatTargetUser] = useState<any>(null);
 
   // Check URL parameters for shared content on initial load
@@ -269,7 +267,9 @@ function AppContent() {
       {/* Navbar */}
       <Navbar
         onOpenAuth={() => setIsAuthOpen(true)}
-        onOpenChat={() => setIsChatOpen(true)}
+        onOpenChat={() => {
+          setActiveTab('chat');
+        }}
         onNavigateTab={(tab) => {
           if (tab === 'profile') {
             setProfileUsername(undefined);
@@ -336,18 +336,14 @@ function AppContent() {
           setActiveTab(tab);
         }}
         onOpenCreate={() => setIsCreateOpen(true)}
-        onOpenChat={() => setIsChatOpen(true)}
+        onOpenChat={() => {
+          setActiveTab('chat');
+        }}
       />
 
       {/* Modals */}
       <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
       <CreateModal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} />
-      <ChatDrawer
-        isOpen={isChatOpen}
-        onClose={() => setIsChatOpen(false)}
-        targetUser={chatTargetUser}
-        onOpenProfile={handleOpenProfile}
-      />
     </div>
   );
 }

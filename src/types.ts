@@ -23,6 +23,8 @@ export interface UserProfile {
   riskLevel?: 'Low' | 'Medium' | 'High';
   followersCount: number;
   followingCount: number;
+  following?: string[];
+  followers?: string[];
   postsCount?: number;
   reelsCount?: number;
   projectsCount?: number;
@@ -61,6 +63,14 @@ export interface Post {
   githubUrl?: string;
   demoUrl?: string;
   tags: string[];
+  collaborators?: {
+    id: string;
+    username: string;
+    fullName: string;
+    avatar: string;
+    role?: UserRole;
+  }[];
+  mentions?: string[];
   likesCount: number;
   likedByCurrentUser?: boolean;
   savedByCurrentUser?: boolean;

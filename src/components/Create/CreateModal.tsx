@@ -130,13 +130,19 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
 
   // Collaborators Tagged
   const [selectedCollaborators, setSelectedCollaborators] = useState<string[]>([]);
+  const [collabSearch, setCollabSearch] = useState('');
 
   // GitHub Sync State
   const [selectedRepo, setSelectedRepo] = useState<any>(null);
 
   if (!isOpen || !currentUser) return null;
 
-  const availableDevelopers = users.filter((u) => u.role === 'developer' && u.id !== currentUser.id);
+  const eligibleUsers = users.filter((u) => u.id !== currentUser.id && !u.isBanned);
+  const filteredCollabUsers = eligibleUsers.filter(
+    (u) =>
+      u.username.toLowerCase().includes(collabSearch.toLowerCase()) ||
+      u.fullName.toLowerCase().includes(collabSearch.toLowerCase())
+  );
 
   const toggleCollaborator = (username: string) => {
     setSelectedCollaborators((prev) =>
@@ -151,6 +157,17 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);
+
+    // Build rich collaborator objects
+    const richCollaborators = users
+      .filter((u) => selectedCollaborators.includes(u.username))
+      .map((u) => ({
+        id: u.id,
+        username: u.username,
+        fullName: u.fullName,
+        avatar: u.avatar,
+        role: u.role,
+      }));
 
     let finalCaption = content;
     if (selectedCollaborators.length > 0) {
@@ -188,6 +205,8 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
         demoUrl: demoUrl || undefined,
         githubUrl: githubUrl || (selectedRepo ? selectedRepo.url : undefined),
         tags: tagArray,
+        collaborators: richCollaborators.length > 0 ? richCollaborators : undefined,
+        mentions: selectedCollaborators.length > 0 ? selectedCollaborators : undefined,
         githubStats: selectedRepo
           ? {
               stars: selectedRepo.stars,
@@ -202,6 +221,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
     setTitle('');
     setContent('');
     setSelectedCollaborators([]);
+    setCollabSearch('');
     setSelectedRepo(null);
     onClose();
   };
@@ -482,35 +502,68 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose }) => 
             />
           </div>
 
-          {/* TAG & COLLABORATE WITH DEVELOPERS */}
+          {/* TAG & COLLABORATE WITH DEVELOPERS / CLIENTS */}
           <div>
-            <label className="block text-xs font-semibold text-zinc-300 mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5 text-orange-400" />
-                <span>Tag & Collaborate with Web Developers:</span>
-              </span>
-              <span className="text-[10px] text-zinc-500">Tap developer to tag</span>
-            </label>
-            <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto p-2 bg-zinc-950 border border-zinc-800 rounded-xl">
-              {availableDevelopers.map((dev) => {
-                const isSelected = selectedCollaborators.includes(dev.username);
-                return (
-                  <button
-                    key={dev.id}
-                    type="button"
-                    onClick={() => toggleCollaborator(dev.username)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
-                      isSelected
-                        ? 'bg-orange-500 text-white shadow-sm'
-                        : 'bg-zinc-800 text-zinc-400 hover:text-white'
-                    }`}
-                  >
-                    <img src={dev.avatar} alt={dev.username} className="w-4 h-4 rounded-full object-cover" />
-                    <span>@{dev.username}</span>
-                    {isSelected ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-                  </button>
-                );
-              })}
+                <span>Tag Collaborators & Mentions</span>
+              </label>
+              {selectedCollaborators.length > 0 && (
+                <span className="text-[10px] text-orange-400 font-semibold">
+                  {selectedCollaborators.length} tagged
+                </span>
+              )}
+            </div>
+
+            {/* Search Input for Collaborators */}
+            <div className="relative mb-2">
+              <input
+                type="text"
+                placeholder="Search by username or name to tag/collaborate..."
+                value={collabSearch}
+                onChange={(e) => setCollabSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-zinc-800/80 border border-zinc-700 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500"
+              />
+              <Users className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
+              {collabSearch && (
+                <button
+                  type="button"
+                  onClick={() => setCollabSearch('')}
+                  className="absolute right-2.5 top-2 text-zinc-400 hover:text-white"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto p-2 bg-zinc-950 border border-zinc-800 rounded-xl">
+              {filteredCollabUsers.length === 0 ? (
+                <div className="w-full text-center py-2 text-[11px] text-zinc-500">
+                  No users found matching "{collabSearch}"
+                </div>
+              ) : (
+                filteredCollabUsers.map((dev) => {
+                  const isSelected = selectedCollaborators.includes(dev.username);
+                  return (
+                    <button
+                      key={dev.id}
+                      type="button"
+                      onClick={() => toggleCollaborator(dev.username)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'bg-orange-500 text-white shadow-sm'
+                          : 'bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700/50'
+                      }`}
+                    >
+                      <img src={dev.avatar} alt={dev.username} className="w-4 h-4 rounded-full object-cover" />
+                      <span>@{dev.username}</span>
+                      <span className="text-[9px] opacity-70 uppercase tracking-wider">({dev.role})</span>
+                      {isSelected ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
 
